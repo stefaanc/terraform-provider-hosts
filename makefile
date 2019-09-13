@@ -13,7 +13,7 @@ IS_WINDOWS       := $(findstring windows,$(OS))
 RELEASE_PATH     := $(abspath ./releases/$(OS)_$(ARCH))
 PLUGIN_PATH      := $(if $(IS_WINDOWS),$(APPDATA)/terraform.d/plugins,$(HOME)/.terraform.d/plugins)
 PLUGIN_FILE      := $(PLUGIN_NAME)_v$(PLUGIN_VERSION)$(shell go env GOEXE)
-TEST_LOG_FILE    := test.log
+TEST_LOG_FILE    := _test.log
 GO_TEST_FILES    := $(if $(IS_WINDOWS),$(shell dir /S /B *_test.go),$(shell find . -type f -name '*_test.go'))
 GO_BUILD_FILES   := $(if $(IS_WINDOWS),$(shell dir /S /B *.go | findstr /v /c:"_test.go"),$(shell find . -type f -name '*.go' | grep -v '*_test.go'))
 
@@ -48,8 +48,8 @@ endif
 
 $(RELEASE_PATH)/$(PLUGIN_FILE): $(RELEASE_PATH) $(PLUGIN_PATH)/$(PLUGIN_FILE) $(TEST_LOG_FILE)
 ifneq (,$(IS_WINDOWS))
-	copy /Y $(subst /,\,$(PLUGIN_PATH))\$(PLUGIN_FILE) $(subst /,\,$(RELEASE_PATH))\$(PLUGIN_FILE)
-	copy /Y $(TEST_LOG_FILE) $(subst /,\,$(RELEASE_PATH))\$(TEST_LOG_FILE)
+	copy /Y $(subst /,\,$(PLUGIN_PATH))\$(PLUGIN_FILE) $(subst /,\,$(RELEASE_PATH))\\$(PLUGIN_FILE)
+	copy /Y $(TEST_LOG_FILE) $(subst /,\,$(RELEASE_PATH))\\$(PLUGIN_NAME)_v$(PLUGIN_VERSION)_test.log
 else
 	cp -f $(PLUGIN_PATH)/$(PLUGIN_FILE) $(RELEASE_PATH)/$(PLUGIN_FILE)
 	cp -f $(TEST_LOG_FILE) $(RELEASE_PATH)/$(TEST_LOG_FILE)
