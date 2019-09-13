@@ -1,0 +1,71 @@
+//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
+package hosts
+
+import (
+    "strings"
+    "github.com/hashicorp/terraform/helper/schema"
+    "github.com/hashicorp/terraform/helper/validation"
+)
+
+func resourceHostsRecord() *schema.Resource {
+    return &schema.Resource{
+        Create: resourceHostsRecordCreate,
+        Read:   resourceHostsRecordRead,
+        Update: resourceHostsRecordUpdate,
+        Delete: resourceHostsRecordDelete,
+
+        Schema: map[string]*schema.Schema {
+            "address": &schema.Schema {
+                Type:         schema.TypeString,
+                Required:     true,
+                ValidateFunc: validation.SingleIP(),
+            },
+            "hostname": &schema.Schema {
+                Type:      schema.TypeString,
+                Required:  true,
+            },
+            "domain": &schema.Schema {
+                Type:      schema.TypeString,
+                Optional:  true,
+            },
+            "aliases": &schema.Schema {
+                Type:     schema.TypeList,
+                Elem:     &schema.Schema {
+                    Type: schema.TypeString,
+                },
+                Optional: true,
+            },
+            "comment": &schema.Schema {
+                Type:      schema.TypeString,
+                Optional:  true,
+            },
+        },
+    }
+}
+
+func resourceHostsRecordCreate(d *schema.ResourceData, m interface{}) error {
+//        address := d.Get("address").(string)
+    hostname := d.Get("hostname").(string)
+//        aliases := d.Get("hostname").(string)
+
+    id := strings.ToLower(hostname)
+    d.SetId(id)
+    return resourceHostsRecordRead(d, m)
+}
+
+func resourceHostsRecordRead(d *schema.ResourceData, m interface{}) error {
+    return nil
+}
+
+func resourceHostsRecordUpdate(d *schema.ResourceData, m interface{}) error {
+    return resourceHostsRecordRead(d, m)
+}
+
+func resourceHostsRecordDelete(d *schema.ResourceData, m interface{}) error {
+    return nil
+}

@@ -1,0 +1,8 @@
+/**/_*
+/**/*.tfstate
+/**/*.tfstate.backup
+
+/.terraform/
+/logs/
+/playground/
+/releases/
