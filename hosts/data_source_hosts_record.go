@@ -25,15 +25,17 @@ func dataSourceHostsRecord() *schema.Resource {
                 Required: true,
                 ForceNew: true,
             },
+
+            "id":  &schema.Schema {
+                Type:     schema.TypeString,
+                Computed: true,
+            },
+            
             "address": &schema.Schema {
                 Type:     schema.TypeString,
                 Computed: true,
             },
-            "name": &schema.Schema {
-                Type:     schema.TypeString,
-                Computed: true,
-            },
-            "aliases": &schema.Schema {
+            "names": &schema.Schema {
                 Type:     schema.TypeList,
                 Elem:     &schema.Schema {
                     Type: schema.TypeString,
@@ -45,10 +47,6 @@ func dataSourceHostsRecord() *schema.Resource {
                 Computed: true,
             },
 
-            "host": &schema.Schema {
-                Type:     schema.TypeString,
-                Computed: true,
-            },
             "domain": &schema.Schema {
                 Type:     schema.TypeString,
                 Computed: true,

@@ -6,7 +6,49 @@ import (
 
 // -----------------------------------------------------------------------------
 
-func InitHosts() {
+func Init() {
+    hosts.init()
+    return
+}
+
+func GetFile(fQuery *File) (f *File) {
+    return hosts.getFile(fQuery)
+}
+
+func GetZone(zQuery *Zone) (z *Zone) {
+    return hosts.getZone(zQuery)
+}
+
+func GetRecord(rQuery *Record) (r *Record) {
+    return hosts.getRecord(rQuery)
+}
+
+// -----------------------------------------------------------------------------
+
+type anchor struct {
+    newFileID func () fileID
+    fileIndex map[fileID]*File
+    filePaths map[string][]*File
+
+    newZoneID func () zoneID
+    zoneIndex map[zoneID]*Zone
+    zoneFiles map[string][]*Zone
+    zoneNames map[string][]*Zone
+
+    newRecordID func () recordID
+    recordIndex map[recordID]*Record
+    recordAddresses map[string][]*Record
+    recordNames map[string][]*Record
+}
+
+var hosts *anchor
+
+func (h *anchor) init() {
+    if hosts != nil {
+        // already initialized
+        return
+    }
+
     hosts = new(anchor)
 
     lastFileID := fileID(0)
@@ -38,49 +80,29 @@ func InitHosts() {
 
 // -----------------------------------------------------------------------------
 
-type anchor struct {
-    newFileID func () fileID
-    fileIndex map[fileID]*File
-    filePaths map[string][]*File
-
-    newZoneID func () zoneID
-    zoneIndex map[zoneID]*Zone
-    zoneFiles map[string][]*Zone
-    zoneNames map[string][]*Zone
-
-    newRecordID func () recordID
-    recordIndex map[recordID]*Record
-    recordAddresses map[string][]*Record
-    recordNames map[string][]*Record
-}
-
-var hosts *anchor
-
-// -----------------------------------------------------------------------------
-
 type fileID int
 
-func (hosts *anchor) getFile(f *File) (file *File) {
-    if f.id != 0 {
-        return f
+func (h *anchor) getFile(fQuery *File) (f *File) {
+    if fQuery.id != 0 {
+        return fQuery
     }
 
-    if f.ID != 0 {
-        file := hosts.fileIndex[f.ID]
-        if file == nil {
+    if fQuery.ID != 0 {
+        f := hosts.fileIndex[fQuery.ID]
+        if f == nil {
             return nil
         }
 
         // check other identifying properties
-        if f.Path != "" && f.Path != file.path {
+        if fQuery.Path != "" && fQuery.Path != f.Path {
             return nil
         }
 
-        return file
+        return f
     }
 
-    if f.Path != "" {
-        fs := hosts.filePaths[f.Path]
+    if fQuery.Path != "" {
+        fs := hosts.filePaths[fQuery.Path]
         if len(fs) != 1 {
             // if more than 1 valid record, 'get' cannot decide which one to return
             return nil
@@ -92,54 +114,54 @@ func (hosts *anchor) getFile(f *File) (file *File) {
     return nil
 }
 
-func (hosts *anchor) addFile(file *File) error {
-    if file.id != 0 {
+func (h *anchor) addFile(f *File) error {
+    if f.id != 0 {
         // file already indexed
         return nil
     }
 
-    if hosts.getFile(file) != nil {
+    if GetFile(f) != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/hosts.addFile()] another file with these indexing properties is already indexed")
     }
 
     id := hosts.newFileID()
-    path := file.path
+    path := f.Path
 
-    hosts.fileIndex[id] = file
-    hosts.filePaths[path] = append(hosts.filePaths[path], file)
+    hosts.fileIndex[id] = f
+    hosts.filePaths[path] = append(hosts.filePaths[path], f)
 
-    file.ID = id
-    file.id = id
+    f.ID = id
+    f.id = id
 
     return nil
 }
 
-func (hosts *anchor) removeFile(file *File) {
-    if file.id == 0 {
+func (h *anchor) removeFile(f *File) {
+    if f.id == 0 {
         // file not indexed yet/anymore
         return
     }
 
-    id := file.id
-    path := file.path
+    id := f.id
+    path := f.Path
 
     delete(hosts.fileIndex, id)
-    hosts.filePaths[path] = deleteFromSliceOfFiles(hosts.filePaths[path], file)
+    hosts.filePaths[path] = deleteFromSliceOfFiles(hosts.filePaths[path], f)
 
-    file.ID = fileID(0)
-    file.id = fileID(0)
+    f.ID = fileID(0)
+    f.id = fileID(0)
 
     return
 }
 
-func deleteFromSliceOfFiles(fs []*File, file *File) []*File {
+func deleteFromSliceOfFiles(fs []*File, f *File) []*File {
     if len(fs) == 0 {
-        return make([]*File, 0)   // always return a copy
+        return []*File(nil)   // always return a copy
     }
 
     newFiles := make([]*File, len(fs) - 1)
     decr := 0
-    for i, f := range fs {
+    for i, file := range fs {
         if file.id == f.id {
             decr = 1
         } else {
@@ -154,54 +176,54 @@ func deleteFromSliceOfFiles(fs []*File, file *File) []*File {
 
 type zoneID int
 
-func (hosts *anchor) getZone(z *Zone) *Zone {
-    if z.id != 0 {
+func (h *anchor) getZone(zQuery *Zone) (z *Zone) {
+    if zQuery.id != 0 {
+        return zQuery
+    }
+
+    if zQuery.ID != 0 {
+        z := hosts.zoneIndex[zQuery.ID]
+        if z == nil {
+            return nil
+        }
+
+        // check other identifying properties
+        if zQuery.File != "" && zQuery.File != z.File {
+            return nil
+        }
+        if zQuery.Name != "" && zQuery.Name != z.Name {
+            return nil
+        }
+
         return z
     }
 
-    if z.ID != 0 {
-        zone := hosts.zoneIndex[z.ID]
-        if zone == nil {
-            return nil
-        }
-
-        // check other identifying properties
-        if z.File != "" && z.File != zone.file {
-            return nil
-        }
-        if z.Name != "" && z.Name != zone.name {
-            return nil
-        }
-
-        return zone
-    }
-
-    if z.Name != "" {
-        zs := hosts.zoneNames[z.Name]
+    if zQuery.Name != "" {
+        zs := hosts.zoneNames[zQuery.Name]
         if len(zs) == 0 {
             return nil
         }
-        zone := (*Zone)(nil)
+        z := (*Zone)(nil)
 
         // check other identifying properties
-        if z.File == "" {
+        if zQuery.File == "" {
             if len(zs) == 1 {
-                zone = zs[0]
+                z = zs[0]
             }
         } else {
             for _, candidate := range zs {
-                if z.File == candidate.file {
-                    zone = candidate
+                if zQuery.File == candidate.File {
+                    z = candidate
                     break
                 }
             }
         }
 
-        return zone
+        return z
     }
 
-    if z.File != "" {
-        zs := hosts.zoneFiles[z.File]
+    if zQuery.File != "" {
+        zs := hosts.zoneFiles[zQuery.File]
         if len(zs) != 1 {
             // if more than 1 valid zone, 'get' cannot decide which one to return
             return nil
@@ -213,58 +235,58 @@ func (hosts *anchor) getZone(z *Zone) *Zone {
     return nil
 }
 
-func (hosts *anchor) addZone(zone *Zone) error {
-    if zone.id != 0 {
+func (h *anchor) addZone(z *Zone) error {
+    if z.id != 0 {
         // zone already indexed
         return nil
     }
 
-    if hosts.getZone(zone) != nil {
+    if GetZone(z) != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/hosts.addZone()] another zone with these indexing properties is already indexed")
     }
 
     id := hosts.newZoneID()
-    file := zone.file
-    name := zone.name
+    file := z.File
+    name := z.Name
 
-    hosts.zoneIndex[id] = zone
-    hosts.zoneFiles[file] = append(hosts.zoneFiles[file], zone)
-    hosts.zoneNames[name] = append(hosts.zoneNames[name], zone)
+    hosts.zoneIndex[id] = z
+    hosts.zoneFiles[file] = append(hosts.zoneFiles[file], z)
+    hosts.zoneNames[name] = append(hosts.zoneNames[name], z)
 
-    zone.ID = id
-    zone.id = id
+    z.ID = id
+    z.id = id
 
     return nil
 }
 
-func (hosts *anchor) removeZone(zone *Zone) {
-    if zone.id == 0 {
+func (h *anchor) removeZone(z *Zone) {
+    if z.id == 0 {
         // file not indexed yet/anymore
         return
     }
 
-    id := zone.id
-    file := zone.file
-    name := zone.name
+    id := z.id
+    file := z.File
+    name := z.Name
 
     delete(hosts.zoneIndex, id)
-    hosts.zoneFiles[file] = deleteFromSliceOfZones(hosts.zoneFiles[file], zone)
-    hosts.zoneNames[name] = deleteFromSliceOfZones(hosts.zoneNames[name], zone)
+    hosts.zoneFiles[file] = deleteFromSliceOfZones(hosts.zoneFiles[file], z)
+    hosts.zoneNames[name] = deleteFromSliceOfZones(hosts.zoneNames[name], z)
 
-    zone.ID = zoneID(0)
-    zone.id = zoneID(0)
+    z.ID = zoneID(0)
+    z.id = zoneID(0)
 
     return
 }
 
-func deleteFromSliceOfZones(zs []*Zone, zone *Zone) []*Zone {
+func deleteFromSliceOfZones(zs []*Zone, z *Zone) []*Zone {
     if len(zs) == 0 {
-        return make([]*Zone, 0)   // always return a copy
+        return []*Zone(nil)   // always return a copy
     }
 
     newZones := make([]*Zone, len(zs) - 1)
     decr := 0
-    for i, z := range zs {
+    for i, zone := range zs {
         if zone.id == z.id {
             decr = 1
         } else {
@@ -279,27 +301,27 @@ func deleteFromSliceOfZones(zs []*Zone, zone *Zone) []*Zone {
 
 type recordID int
 
-func (hosts *anchor) getRecord(r *Record) *Record {
-    if r.id != 0 {
-        return r
+func (h *anchor) getRecord(rQuery *Record) (r *Record) {
+    if rQuery.id != 0 {
+        return rQuery
     }
 
-    if r.ID != 0 {
-        record := hosts.recordIndex[r.ID]
-        if record == nil {
+    if rQuery.ID != 0 {
+        r := hosts.recordIndex[rQuery.ID]
+        if r == nil {
             return nil
         }
 
         // check other identifying properties
-        if r.Address != "" && r.Address != record.Address {
+        if rQuery.Address != "" && rQuery.Address != r.Address {
             return nil
         }
-        if len(r.Names) > 0 {
+        if len(rQuery.Names) > 0 {
             // a valid record has all names (or more) that are found in r.Names
             valid := true
-            for _, n := range r.Names {
+            for _, n := range rQuery.Names {
                 found := false
-                for _, name := range record.Names {
+                for _, name := range r.Names {
                     if n == name {
                         found = true
                         break
@@ -315,19 +337,19 @@ func (hosts *anchor) getRecord(r *Record) *Record {
             }
         }
 
-        return record
+        return r
     }
 
-    if r.Address != "" {
-        rs := hosts.recordAddresses[r.Address]
+    if rQuery.Address != "" {
+        rs := hosts.recordAddresses[rQuery.Address]
         if len(rs) == 0 {
             return nil
         }
-        record := (*Record)(nil)
+        r := (*Record)(nil)
 
-        if len(r.Names) == 0 {
+        if len(rQuery.Names) == 0 {
             if len(rs) == 1 {
-                record = rs[0]
+                r = rs[0]
             }
         } else {
             // check other identifying properties
@@ -335,7 +357,7 @@ func (hosts *anchor) getRecord(r *Record) *Record {
             for _, candidate := range rs {
                 // a valid candidate has all names (or more) that are found in r.Names
                 valid := true
-                for _, n := range r.Names {
+                for _, n := range rQuery.Names {
                     found := false
                     for _, name := range candidate.Names {
                         if n == name {
@@ -354,24 +376,24 @@ func (hosts *anchor) getRecord(r *Record) *Record {
                         // if more than 1 valid record, 'get' cannot decide which one to return
                         return nil
                     }
-                    record = candidate
+                    r = candidate
                 }
             }
         }
 
-        return record
+        return r
     }
 
-    if len(r.Names) > 0 {
-        rs := hosts.recordNames[r.Names[0]]
+    if len(rQuery.Names) > 0 {
+        rs := hosts.recordNames[rQuery.Names[0]]
         if len(rs) == 0 {
             return nil
         }
-        record := (*Record)(nil)
+        r := (*Record)(nil)
 
-        if len(r.Names) == 1 {
+        if len(rQuery.Names) == 1 {
             if len(rs) == 1 {
-                record = rs[0]
+                r = rs[0]
             }
         } else {
             // check other identifying names
@@ -379,7 +401,7 @@ func (hosts *anchor) getRecord(r *Record) *Record {
             for _, candidate := range rs {
                 // a valid candidate has all names (or more) that are found in r.Names
                 valid := true
-                for i, n := range r.Names {
+                for i, n := range rQuery.Names {
                     if i == 0 { continue }   // rs is based on r.Names[0]
 
                     found := false
@@ -400,73 +422,73 @@ func (hosts *anchor) getRecord(r *Record) *Record {
                         // if more than 1 valid record, 'get' cannot decide which one to return
                         return nil
                     }
-                    record = candidate
+                    r = candidate
                 }
             }
         }
 
-        return record
+        return r
     }
 
     return nil
 }
 
-func (hosts *anchor) addRecord(record *Record) error {
-    if record.id != 0 {
+func (h *anchor) addRecord(r *Record) error {
+    if r.id != 0 {
         // record already indexed
         return nil
     }
 
-    if hosts.getRecord(record) != nil {
+    if GetRecord(r) != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/hosts.addRecord()] another record with these indexing properties is already indexed")
     }
 
     id := hosts.newRecordID()
-    address := record.Address
-    names := record.Names
+    address := r.Address
+    names := r.Names
 
-    hosts.recordIndex[id] = record
-    hosts.recordAddresses[address] = append(hosts.recordAddresses[address], record)
+    hosts.recordIndex[id] = r
+    hosts.recordAddresses[address] = append(hosts.recordAddresses[address], r)
     for _, n := range names {
-        hosts.recordNames[n] = append(hosts.recordNames[n], record)
+        hosts.recordNames[n] = append(hosts.recordNames[n], r)
     }
 
-    record.ID = id
-    record.id = id
+    r.ID = id
+    r.id = id
 
     return nil
 }
 
-func (hosts *anchor) removeRecord(record *Record) {
-    if record.id == 0 {
+func (h *anchor) removeRecord(r *Record) {
+    if r.id == 0 {
         // file not indexed yet/anymore
         return
     }
 
-    id := record.id
-    address := record.Address
-    names := record.Names
+    id := r.id
+    address := r.Address
+    names := r.Names
 
     delete(hosts.recordIndex, id)
-    hosts.recordAddresses[address] = deleteFromSliceOfRecords(hosts.recordAddresses[address], record)
+    hosts.recordAddresses[address] = deleteFromSliceOfRecords(hosts.recordAddresses[address], r)
     for _, n := range names {
-       hosts.recordNames[n] = deleteFromSliceOfRecords(hosts.recordNames[n], record)
+       hosts.recordNames[n] = deleteFromSliceOfRecords(hosts.recordNames[n], r)
     }
 
-    record.ID = recordID(0)
-    record.id = recordID(0)
+    r.ID = recordID(0)
+    r.id = recordID(0)
 
     return
 }
 
-func deleteFromSliceOfRecords(rs []*Record, record *Record) []*Record {
+func deleteFromSliceOfRecords(rs []*Record, r *Record) []*Record {
     if len(rs) == 0 {
-        return make([]*Record, 0)   // always return a copy
+        return []*Record(nil)   // always return a copy
     }
 
     newRecords := make([]*Record, len(rs) - 1)
     decr := 0
-    for i, r := range rs {
+    for i, record := range rs {
         if record.id == r.id {
             decr = 1
         } else {

@@ -9,34 +9,47 @@ package hosts
 import (
     "log"
 
-//    "github.com/stefaanc/terraform-provider-hosts/api"
+    hosts "github.com/stefaanc/terraform-provider-hosts/api"
 )
 
 type Config struct {
     File string
+    Zone string
 }
 
 func (c *Config) Client() (interface{}, error) {
-    log.Printf("[INFO][hosts] configuring hosts-provider with:\n")
-    log.Printf("[INFO][hosts]     File: %s\n", c.File)
+    log.Printf("[INFO][terraform-provider-hosts] configuring hosts-provider for:\n")
+    log.Printf("[INFO][terraform-provider-hosts]     File: %q\n", c.File)
+    log.Printf("[INFO][terraform-provider-hosts]     Zone: %q\n", c.Zone)
 
-    // file := new(api.File)
-    // file.Path = c.File
-    
-    // hosts := new(api.Hosts)
-    // hosts.File = file
+    file := c.File
+    zone := c.Zone
 
-    // log.Printf("[INFO][hosts] reading hosts-file '%s'\n", hosts.File)
-    // h, err := api.ReadHosts(hosts)
-    // if err != nil {
-    //     log.Printf("[WARNING][hosts] cannot read hosts-file, error:\n")
-    //     log.Printf("[WARNING][hosts]     Error: '%s'\n", err.Error())
-    //     log.Printf("[INFO][hosts] creating an empty hosts-object\n")
-    //     h, err = api.CreateHosts(hosts)
-    // }
+    hosts.Init()
 
-    log.Printf("[INFO][hosts] configured hosts-provider\n")
+    fValues := new(hosts.File)
+    fValues.Path = file
+    f := hosts.GetFile(fValues)
+    if f == nil {
+        err := hosts.CreateFile(fValues)
+        if err != nil {
+            return nil, err
+        }
 
-    // return h, err
-    return nil, nil
+        f = hosts.GetFile(fValues)
+    }
+
+    zValues := new(hosts.Zone)
+    zValues.File = file
+    zValues.Name = zone
+    err := f.CreateZone(zValues)
+    if err != nil {
+        return nil, err
+    }
+
+    z := hosts.GetZone(zValues)
+
+    log.Printf("[INFO][terraform-provider-hosts] configured hosts-provider\n")
+
+    return z, nil
 }

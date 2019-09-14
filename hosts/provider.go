@@ -29,6 +29,12 @@ func Provider() terraform.ResourceProvider {
                     }
                 },
             },
+            "zone": {
+                Description: "The zone in the hosts-file",
+                Type:        schema.TypeString,
+                Optional:    true,
+                Default:     "external",
+            },
         },
 
         DataSourcesMap: map[string]*schema.Resource {
@@ -46,6 +52,7 @@ func Provider() terraform.ResourceProvider {
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
     config := Config{
         File: d.Get("file").(string),
+        Zone: d.Get("zone").(string),
     }
 
     return config.Client()
