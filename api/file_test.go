@@ -2,7 +2,7 @@ package api
 
 import (
     "crypto/sha1"
-    "fmt"
+    "encoding/hex"
     "io/ioutil"
     "os"
     "testing"
@@ -155,21 +155,11 @@ func Test_createFile(t *testing.T) {
                 t.Errorf("[ GetFile(fValues).Path ] expected: %#v, actual: %#v", fValues.Path, f.Path)
             }
 
-            // --------------------
-
-            if len(f.data) != 0 {
-                t.Errorf("[ len(GetFile(fValues).data) ] expected: %#v, actual: %#v", 0, len(f.data))
-            }
 
             // --------------------
 
-            if len(f.zones) != 0 {
-                t.Errorf("[ len(GetFile(fValues).zones) ] expected: %#v, actual: %#v", 0, len(f.zones))
-            }
-
-            // --------------------
-
-            expected := fmt.Sprintf("%x", sha1.Sum(f.data))
+            checksum := sha1.Sum(nil)
+            expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
                 t.Errorf("[ GetFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
             }
@@ -241,19 +231,8 @@ func Test_createFile(t *testing.T) {
 
             // --------------------
 
-            if len(f.data) != len(data) {
-                t.Errorf("[ len(GetFile(fValues).data) ] expected: %#v, actual: %#v", len(data), len(f.data))
-            }
-
-            // --------------------
-
-            if len(f.zones) != 0 {
-                t.Errorf("[ len(GetFile(fValues).zones) ] expected: %#v, actual: %#v", 0, len(f.zones))
-            }
-
-            // --------------------
-
-            expected := fmt.Sprintf("%x", sha1.Sum(data))
+            checksum := sha1.Sum(data)
+            expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
                 t.Errorf("[ GetFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
             }
@@ -401,21 +380,11 @@ func Test_readFile(t *testing.T) {
             t.Errorf("[ readFile(f) ] expected: %s, actual: %#v", "not <nil>", f)
         } else {
 
-            // --------------------
-
-            if len(file.data) != len(data) {
-                t.Errorf("[ len(file.data) ] expected: %#v, actual: %#v", len(data), len(file.data))
-            }
 
             // --------------------
 
-            if len(file.zones) != 0 {
-                t.Errorf("[ len(file.data) ] expected: %#v, actual: %#v", 0, len(file.zones))
-            }
-
-            // --------------------
-
-            expected := fmt.Sprintf("%x", sha1.Sum(data))
+            checksum := sha1.Sum(data)
+            expected := hex.EncodeToString(checksum[:])
             if file.checksum != expected {
                 t.Errorf("[ file.checksum ] expected: %#v, actual: %#v", expected, file.checksum)
             }
@@ -479,7 +448,7 @@ func Test_fUpdate(t *testing.T) {
         // --------------------
 
         fValues := new(File)
-        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("some updated data")
 
         err = f.Update(fValues)
 
@@ -512,7 +481,7 @@ func Test_fUpdate(t *testing.T) {
         // --------------------
 
         fValues := new(File)
-        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("some updated data")
 
         err = f.Update(fValues)
 
@@ -550,7 +519,7 @@ func Test_updateFile(t *testing.T) {
         // --------------------
 
         fValues := new(File)
-        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("some updated data")
 
         err = updateFile(f, fValues)
 
@@ -568,22 +537,10 @@ func Test_updateFile(t *testing.T) {
 
             // --------------------
 
-            checksum := fmt.Sprintf("%x", sha1.Sum(fValues.data))   // save for later
-            fValues.data = append(fValues.data, fValues.data[0])    // check this doesn't affect f
-            if len(f.data) != len(fValues.data)-1 {
-                t.Errorf("[ len(f.data) ] expected: %#v, actual: %#v", len(fValues.data)-1, len(f.data))
-            }
-
-            // --------------------
-
-            if len(f.zones) != 0 {
-                t.Errorf("[ len(f.zones) ] expected: %#v, actual: %#v", 0, len(f.zones))
-            }
-
-            // --------------------
-
-            if f.checksum != checksum {
-                t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", checksum, f.checksum)
+            checksum := sha1.Sum([]byte("some updated data"))
+            expected := hex.EncodeToString(checksum[:])
+            if f.checksum != expected {
+                t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", expected, f.checksum)
             }
         }
 
@@ -610,7 +567,7 @@ func Test_updateFile(t *testing.T) {
         // --------------------
 
         fValues := new(File)
-        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("some updated data")
 
         err = updateFile(f, fValues)
 
@@ -723,18 +680,6 @@ func Test_deleteFile(t *testing.T) {
 
         if f.Path != "" {
             t.Errorf("[ f.Path ] expected: %#v, actual: %#v", "", f.Path)
-        }
-
-        // --------------------
-
-        if len(f.data) != 0 {
-            t.Errorf("[ len(f.data) ] expected: %#v, actual: %#v", 0, len(f.data))
-        }
-
-        // --------------------
-
-        if len(f.zones) != 0 {
-            t.Errorf("[ len(f.zones) ] expected: %#v, actual: %#v", 0, len(f.zones))
         }
 
         // --------------------

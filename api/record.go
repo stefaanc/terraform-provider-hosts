@@ -8,18 +8,18 @@ import (
 
 type Record struct {
     // readOnly
-    ID         recordID   // indexed
+    ID      recordID   // indexed - read-write in zQuery
     // read-writeMany
-    Address    string     // indexed
-    Names      []string   // indexed
-    Comment    string
-    Notes      string
-    // computed
+    Address string     // indexed
+    Names   []string   // indexed
+    Comment string
+    Notes   string
+    // readOnly        //-computed
 //    FQDN       string
 //    Domain     string
 //    RootDomain string
     // private
-    id         recordID
+    id      recordID
 }
 
 func (z *Zone) CreateRecord(rValues *Record) error {
@@ -43,13 +43,14 @@ func (r *Record) Read() (record *Record, err error) {
         return nil, err
     }
 
+    // make a copy without the private fields
     record = new(Record)
-    record.ID = r.id
+    record.ID      = r.id
     record.Address = r.Address
-    record.Names = make([]string, len(r.Names))
+    record.Names   = make([]string, len(r.Names))
     copy(record.Names, r.Names)
     record.Comment = r.Comment
-    record.Notes = r.Notes
+    record.Notes   = r.Notes
 
     return record, nil
 }

@@ -8,24 +8,33 @@ import (
 
 type Zone struct {
     // readOnly
-    ID    zoneID   // indexed
-    File  string   // indexed
+    ID       zoneID   // indexed - read-write in zQuery
+    Managed  bool
+    File     string   // indexed - read-write in zQuery
     // read-writeOnce
-    Name  string   // indexed
+    Name     string   // indexed
     // read-writeMany
-    Notes string
+    Notes    string
     // private
-    id    zoneID
+    id       zoneID
+    lines    []string
+    checksum string
 }
 
 func (f *File) CreateZone(zValues *Zone) error {
     z := GetZone(zValues)
-    if z != nil {
+    if z != nil && z.Managed {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone()] another zone with similar properties already exists")
     }
     if z.Name == "" {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone()] missing 'zValues.Name'")
     }
+    if z.Name == "external" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone()] illegal value \"external\" specified for 'zValues.Name'")
+    }
+
+    zValues.File    = f.Path
+    zValues.Managed = true // take ownership
 
     return createZone(zValues)
 }
@@ -36,11 +45,13 @@ func (z *Zone) Read() (zone *Zone, err error) {
         return nil, err
     }
 
+    // make a copy without the private fields
     zone = new(Zone)
-    zone.ID = z.id
-    zone.File = z.File
-    zone.Name = z.Name
-    zone.Notes = z.Notes
+    zone.ID      = z.id
+    zone.Managed = z.Managed
+    zone.File    = z.File
+    zone.Name    = z.Name
+    zone.Notes   = z.Notes
 
     return zone, nil
 }
@@ -76,15 +87,17 @@ func (z *Zone) Delete() error {
 // -----------------------------------------------------------------------------
 
 func createZone(zValues *Zone) error {
-    file := zValues.File
-    name := zValues.Name
-    notes := zValues.Notes
+    managed := zValues.Managed   // managed when called from CreateZone, unmanaged when called from goScanZones (file.go)
+    file    := zValues.File
+    name    := zValues.Name
+    notes   := zValues.Notes
 
     // create zone
     z := new(Zone)
-    z.File  = file
-    z.Name  = name
-    z.Notes = notes
+    z.Managed = managed
+    z.File    = file
+    z.Name    = name
+    z.Notes   = notes
 
     err := hosts.addZone(z)
     if err != nil {
@@ -104,4 +117,23 @@ func updateZone(z *Zone, zValues *Zone) error {
 
 func deleteZone(z *Zone) error {
     return nil
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanLines(z *Zone, lines <-chan string) chan error {
+    cerr := make(chan error)
+
+    go func() {
+        defer close(cerr)
+        
+        for _ = range lines {
+//            ...
+        }
+
+        cerr <- nil
+        return
+    }()
+
+    return cerr
 }
