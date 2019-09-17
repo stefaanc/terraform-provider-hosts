@@ -29,25 +29,26 @@ func (c *Config) Client() (interface{}, error) {
 
     fValues := new(hosts.File)
     fValues.Path = file
-    f := hosts.GetFile(fValues)
+    f := hosts.LookupFile(fValues)
     if f == nil {
         err := hosts.CreateFile(fValues)
         if err != nil {
             return nil, err
         }
-
-        f = hosts.GetFile(fValues)
+        f = hosts.LookupFile(fValues)
     }
 
     zValues := new(hosts.Zone)
-    zValues.File = file
+    zValues.File = f.ID
     zValues.Name = zone
-    err := f.CreateZone(zValues)
-    if err != nil {
-        return nil, err
+    z := hosts.LookupZone(zValues)
+    if z == nil {
+        err := hosts.CreateZone(zValues)
+        if err != nil {
+            return nil, err
+        }
+        z = hosts.LookupZone(zValues)
     }
-
-    z := hosts.GetZone(zValues)
 
     log.Printf("[INFO][terraform-provider-hosts] configured hosts-provider\n")
 

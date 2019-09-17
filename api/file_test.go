@@ -17,33 +17,94 @@ func resetFileTestEnv() {
 
 // -----------------------------------------------------------------------------
 
-func Test_CreateFile(t *testing.T) {
+func Test_LookupFile(t *testing.T) {
     var test string
 
-    test = "already-exists"
+    test = "found"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         f := new(File)
         f.Path = "f"
-        _ = hosts.addFile(f)
-
-        err := CreateFile(f)
+        f.Notes = "..."
+        addFile(f)
 
         // --------------------
 
-        if err == nil {
-            t.Errorf("[ CreateFile(f) ] expected: %s, actual: %#v", "<error>", err)
+        fQuery := new(File)
+        fQuery.ID = int(f.id)
+
+        file := LookupFile(fQuery)
+
+        // --------------------
+
+        if file == nil {
+            t.Errorf("[ LookupFile(fQuery) ] expected: %#v, actual: %#v", f, file)
+        } else {
+
+            // --------------------
+
+            if file.ID != int(f.id) {
+               t.Errorf("[ LookupFile(fQuery).ID ] expected: %#v, actual: %#v", int(f.id), file.ID)
+            }
+
+            // --------------------
+
+            if file.Path != f.Path {
+                t.Errorf("[ LookupFile(fQuery).Path ] expected: %#v, actual: %#v", f.Path, file.Path)
+            }
+
+            // --------------------
+
+            if file.Notes != f.Notes {
+                t.Errorf("[ LookupFile(fQuery).Notes ] expected: %#v, actual: %#v", f.Notes, file.Notes)
+            }
+
+            // --------------------
+
+            if file.id != 0 {
+               t.Errorf("[ LookupFile(fQuery).id ] expected: %#v, actual: %#v", 0, file.id)
+            }
+
+            // --------------------
+
+            if file.checksum != "" {
+                t.Errorf("[ LookupFile(fQuery).checksum ] expected: %#v, actual: %#v", "", file.checksum)
+            }
+
         }
     })
 
-    test = "no-path"
+    test = "not-found"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         // --------------------
+
+        fQuery := new(File)
+        fQuery.ID = 42
+
+        file := LookupFile(fQuery)
+
+        // --------------------
+
+        if file != nil {
+            t.Errorf("[ LookupFile(fQuery) ] expected: %s, actual: %#v", "<error>", file)
+        }
+    })
+}
+
+// -----------------------------------------------------------------------------
+
+func Test_CreateFile(t *testing.T) {
+    var test string
+
+    test = "missing-Path"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
 
         fValues := new(File)
 
@@ -56,7 +117,27 @@ func Test_CreateFile(t *testing.T) {
         }
     })
 
-    test = "create"
+    test = "already-exists"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        f := new(File)
+        f.Path = "f"
+        addFile(f)
+
+        // --------------------
+
+        err := CreateFile(f)
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ CreateFile(f) ] expected: %s, actual: %#v", "<error>", err)
+        }
+    })
+
+    test = "created"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -112,7 +193,7 @@ func Test_CreateFile(t *testing.T) {
 func Test_createFile(t *testing.T) {
     var test string
 
-    test = "create-new-file"
+    test = "created-new-file"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -121,6 +202,7 @@ func Test_createFile(t *testing.T) {
 
         fValues := new(File)
         fValues.Path = "_test-hosts.txt"
+        fValues.Notes = "..."
 
         err := createFile(fValues)
 
@@ -132,36 +214,41 @@ func Test_createFile(t *testing.T) {
 
         // --------------------
 
-        f := GetFile(fValues)
+        f := lookupFile(fValues)
         if f == nil {
-            t.Errorf("[ GetFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ lookupFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
         } else {
 
             // --------------------
 
             if f.id == 0 {
-                t.Errorf("[ GetFile(fValues).id ] expected: not %#v, actual: %#v", 0, f.id)
+                t.Errorf("[ lookupFile(fValues).id ] expected: not %#v, actual: %#v", 0, f.id)
             }
 
             // --------------------
 
-            if f.ID != f.id {
-                t.Errorf("[ GetFile(fValues).ID ] expected: %#v, actual: %#v", f.id, f.ID)
+            if f.ID != int(f.id) {
+                t.Errorf("[ lookupFile(fValues).ID ] expected: %#v, actual: %#v", f.id, f.ID)
             }
 
             // --------------------
 
             if f.Path != fValues.Path {
-                t.Errorf("[ GetFile(fValues).Path ] expected: %#v, actual: %#v", fValues.Path, f.Path)
+                t.Errorf("[ lookupFile(fValues).Path ] expected: %#v, actual: %#v", fValues.Path, f.Path)
             }
 
+            // --------------------
+
+            if f.Notes != fValues.Notes {
+                t.Errorf("[ lookupFile(fValues).Notes ] expected: %#v, actual: %#v", fValues.Notes, f.Notes)
+            }
 
             // --------------------
 
             checksum := sha1.Sum(nil)
             expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
-                t.Errorf("[ GetFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+                t.Errorf("[ lookupFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
             }
 
             // --------------------
@@ -185,10 +272,10 @@ func Test_createFile(t *testing.T) {
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
-            t.Errorf("[ hosts.createFile() ] cannot write test-file")
+            t.Errorf("[ createFile() ] cannot write test-file")
         }
 
         // --------------------
@@ -206,27 +293,33 @@ func Test_createFile(t *testing.T) {
 
         // --------------------
 
-        f := GetFile(fValues)
+        f := lookupFile(fValues)
         if f == nil {
-            t.Errorf("[ GetFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ lookupFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
         } else {
 
             // --------------------
 
             if f.id == 0 {
-                t.Errorf("[ GetFile(fValues).id ] expected: %#v, actual: %#v", 0, f.id)
+                t.Errorf("[ lookupFile(fValues).id ] expected: %#v, actual: %#v", 0, f.id)
             }
 
             // --------------------
 
-            if f.ID != f.id {
-                t.Errorf("[ GetFile(fValues).ID ] expected: %#v, actual: %#v", f.id, f.ID)
+            if f.ID != int(f.id) {
+                t.Errorf("[ lookupFile(fValues).ID ] expected: %#v, actual: %#v", f.id, f.ID)
             }
 
             // --------------------
 
             if f.Path != fValues.Path {
-                t.Errorf("[ GetFile(fValues).Path ] expected: %#v, actual: %#v", fValues.Path, f.Path)
+                t.Errorf("[ lookupFile(fValues).Path ] expected: %#v, actual: %#v", fValues.Path, f.Path)
+            }
+
+            // --------------------
+
+            if f.Notes != fValues.Notes {
+                t.Errorf("[ lookupFile(fValues).Notes ] expected: %#v, actual: %#v", fValues.Notes, f.Notes)
             }
 
             // --------------------
@@ -234,7 +327,7 @@ func Test_createFile(t *testing.T) {
             checksum := sha1.Sum(data)
             expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
-                t.Errorf("[ GetFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+                t.Errorf("[ lookupFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
             }
         }
 
@@ -269,9 +362,9 @@ func Test_createFile(t *testing.T) {
 
         // --------------------
 
-        f := GetFile(fValues)
+        f := lookupFile(fValues)
         if f != nil {
-            t.Errorf("[ GetFile(fValues) ] expected: %#v, actual: %#v", nil, f)
+            t.Errorf("[ lookupFile(fValues) ] expected: %#v, actual: %#v", nil, f)
         }
 
         // --------------------
@@ -283,13 +376,13 @@ func Test_createFile(t *testing.T) {
 func Test_fRead(t *testing.T) {
     var test string
 
-    test = "read"
+    test = "missing-ID"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
             t.Errorf("[ f.Read() ] cannot write test-file")
@@ -297,7 +390,70 @@ func Test_fRead(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
+        f.ID = 0
+
+        // --------------------
+
+        _, err = f.Read()
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "not-found"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Read() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.ID = 1
+
+        // --------------------
+
+        _, err = f.Read()
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "read"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Read() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
 
         // --------------------
 
@@ -319,29 +475,19 @@ func Test_fRead(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts"
-        err := os.Mkdir(path, 0644)
-        if err != nil {
-            t.Errorf("[ f.Read() ] cannot make test-directory")
-        }
-
         f := new(File)
-        f.Path = path
-        _ = hosts.addFile(f)
+        f.Path = "_doesnt-exist.txt"
+        addFile(f)
 
         // --------------------
 
-        _, err = f.Read()
+        _, err := f.Read()
 
         // --------------------
 
         if err == nil {
             t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 }
 
@@ -354,7 +500,7 @@ func Test_readFile(t *testing.T) {
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
             t.Errorf("[ readFile() ] cannot write test-file")
@@ -362,7 +508,7 @@ func Test_readFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
@@ -408,7 +554,7 @@ func Test_readFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
@@ -429,13 +575,82 @@ func Test_readFile(t *testing.T) {
 func Test_fUpdate(t *testing.T) {
     var test string
 
-    test = "update"
+    test = "missing-ID"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Read() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+        f.ID = 0
+
+        // --------------------
+
+        fValues := new(File)
+//        fValues.data = []byte("# some updated data")
+
+        err = f.Update(fValues)
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "not found"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Read() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.ID = 1
+
+        // --------------------
+
+        fValues := new(File)
+//        fValues.data = []byte("# some updated data")
+
+        err = f.Update(fValues)
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "updated"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
             t.Errorf("[ f.Update() ] cannot write test-file")
@@ -443,12 +658,12 @@ func Test_fUpdate(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -476,12 +691,12 @@ func Test_fUpdate(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -500,13 +715,13 @@ func Test_fUpdate(t *testing.T) {
 func Test_updateFile(t *testing.T) {
     var test string
 
-    test = "update"
+    test = "updated"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
             t.Errorf("[ updateFile() ] cannot write test-file")
@@ -514,12 +729,12 @@ func Test_updateFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("# some updated data")
 
         err = updateFile(f, fValues)
 
@@ -537,7 +752,7 @@ func Test_updateFile(t *testing.T) {
 
             // --------------------
 
-            checksum := sha1.Sum([]byte("some updated data"))
+            checksum := sha1.Sum([]byte("# some updated data"))
             expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
                 t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", expected, f.checksum)
@@ -562,12 +777,12 @@ func Test_updateFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("some updated data")
+//        fValues.data = []byte("# some updated data")
 
         err = updateFile(f, fValues)
 
@@ -586,32 +801,96 @@ func Test_updateFile(t *testing.T) {
 func Test_fDelete(t *testing.T) {
     var test string
 
-
-    test = "delete"
+    test = "no-ID"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
-            t.Errorf("[ deleteFile() ] cannot write test-file")
+            t.Errorf("[ f.Delete() ] cannot write test-file")
+        }
+
+        f := new(File)
+        addFile(f)
+        f.ID = 0
+
+        // --------------------
+
+        err = f.Delete()
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Delete() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "not-found"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Delete() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.ID = 1
+
+        // --------------------
+
+        err = f.Delete()
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ f.Delete() ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "deleted"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Delete() ] cannot write test-file")
         }
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        addFile(f)
 
         // --------------------
 
-        err = deleteFile(f)
+        err = f.Delete()
 
         // --------------------
 
         if err != nil {
-            t.Errorf("[ deleteFile(f) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ f.Delete() ] expected: %#v, actual: %#v", nil, err)
         }
+
+        // --------------------
+
+        os.Remove(path)
     })
 
     test = "cannot-delete"
@@ -620,8 +899,8 @@ func Test_fDelete(t *testing.T) {
         resetFileTestEnv()
 
         f := new(File)
-        f.Path = "_test-hosts.txt"
-        _ = hosts.addFile(f)
+        f.Path = "_doesnt-exist.txt"
+        addFile(f)
 
         // --------------------
 
@@ -638,13 +917,13 @@ func Test_fDelete(t *testing.T) {
 func Test_deleteFile(t *testing.T) {
     var test string
 
-    test = "delete"
+    test = "deleted"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
         path := "_test-hosts.txt"
-        data := []byte("some data")
+        data := []byte("# some data")
         err := ioutil.WriteFile(path, data, 0644)
         if err != nil {
             t.Errorf("[ deleteFile() ] cannot write test-file")
@@ -652,7 +931,8 @@ func Test_deleteFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
-        _ = hosts.addFile(f)
+        f.Notes = "..."
+        addFile(f)
 
         // --------------------
 
@@ -684,15 +964,21 @@ func Test_deleteFile(t *testing.T) {
 
         // --------------------
 
+        if f.Notes != "" {
+            t.Errorf("[ f.Notes ] expected: %#v, actual: %#v", "", f.Notes)
+        }
+
+        // --------------------
+
         if f.checksum != "" {
             t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", "", f.checksum)
         }
 
         // --------------------
 
-        f = GetFile(f)
+        f = lookupFile(f)
         if f != nil {
-            t.Errorf("[ GetFile(f) ] expected: %#v, actual: %#v", nil, f)
+            t.Errorf("[ lookupFile(f) ] expected: %#v, actual: %#v", nil, f)
         }
 
         // --------------------
@@ -706,8 +992,8 @@ func Test_deleteFile(t *testing.T) {
         resetFileTestEnv()
 
         f := new(File)
-        f.Path = "_test-hosts.txt"
-        _ = hosts.addFile(f)
+        f.Path = "_doesnt-exist.txt"
+        addFile(f)
 
         // --------------------
 

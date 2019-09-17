@@ -8,12 +8,16 @@ import (
 
 type Record struct {
     // readOnly
-    ID      recordID   // indexed - read-write in zQuery
+    ID      int        // indexed   // read-write in a rQuery
+    // read-writeOnce
+    Zone    int        // indexed   // read-write in a rQuery
     // read-writeMany
     Address string     // indexed
     Names   []string   // indexed
     Comment string
     Notes   string
+    // readOnly
+    Managed bool
     // readOnly        //-computed
 //    FQDN       string
 //    Domain     string
@@ -22,75 +26,182 @@ type Record struct {
     id      recordID
 }
 
-func (z *Zone) CreateRecord(rValues *Record) error {
-    r := GetRecord(rValues)
-    if r != nil {
-        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord()] another record with similar properties already exists")
-    }
-    if r.Address == "" {
-        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord()] missing 'rValues.Address'")
-    }
-    if len(r.Names) == 0 {
-        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord()] missing 'rValues.Names'")
+func LookupRecord(rQuery *Record) (r *Record) {
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate == nil {
+        return nil
     }
 
-    return createRecord(rValues)
+    // make a copy without the private fields
+    r = new(Record)
+    r.ID      = rPrivate.ID
+    r.Zone    = rPrivate.Zone
+    r.Address = rPrivate.Address
+    r.Names   = make([]string, len(rPrivate.Names))
+    copy(r.Names, rPrivate.Names)
+    r.Comment = rPrivate.Comment
+    r.Notes   = rPrivate.Notes
+    r.Managed   = rPrivate.Managed
+    // ignore computed fields
+
+    return r
+}
+
+func CreateRecord(rValues *Record) error {
+    if rValues.Zone == 0 {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Zone'")
+    }
+    if rValues.Address == "" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Address'")
+    }
+    if len(rValues.Names) == 0 {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Names'")
+    }
+
+    // lookup all indexed fields except ID
+    rQuery := new(Record)
+    rQuery.Zone    = rValues.Zone
+    rQuery.Address = rValues.Address
+    rQuery.Names   = make([]string, len(rValues.Names))
+    copy(rQuery.Names, rValues.Names)
+
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate != nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with similar properties already exists")
+    }
+
+    // take ownership
+    rValues.Managed = true
+
+    return createRecord(rValues)   // rValues.ID will be ignored
 }
 
 func (r *Record) Read() (record *Record, err error) {
-    r, err = readRecord(r)
+    if r.ID == 0 {
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] missing 'r.ID'")
+    }
+
+    // lookup the ID field only, ignore any other fields
+    rQuery := new(Record)
+    rQuery.ID = r.ID
+
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate == nil {
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record not found")
+    }
+
+    rPrivate, err = readRecord(rPrivate)
     if err != nil {
         return nil, err
     }
 
     // make a copy without the private fields
     record = new(Record)
-    record.ID      = r.id
-    record.Address = r.Address
-    record.Names   = make([]string, len(r.Names))
-    copy(record.Names, r.Names)
-    record.Comment = r.Comment
-    record.Notes   = r.Notes
+    record.ID      = rPrivate.ID
+    record.Zone    = rPrivate.Zone
+    record.Address = rPrivate.Address
+    record.Names   = make([]string, len(rPrivate.Names))
+    copy(record.Names, rPrivate.Names)
+    record.Comment = rPrivate.Comment
+    record.Notes   = rPrivate.Notes
+    record.Managed = rPrivate.Managed
+    // no computed fields
 
     return record, nil
 }
 
 func (r *Record) Update(rValues *Record) error {
-    return updateRecord(r, rValues)
+    if r.ID == 0 {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'r.ID'")
+    }
+    if rValues.Address == "" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Address'")
+    }
+    if len(rValues.Names) == 0 {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Names'")
+    }
+
+    // lookup the ID field only, ignore any other fields
+    rQuery := new(Record)
+    rQuery.ID = r.ID
+
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record not found")
+    }
+
+    return updateRecord(rPrivate, rValues)   // rValues.ID and rValues.Zone will be ignored
 }
 
 func (r *Record) Delete() error {
-    return deleteRecord(r)
+    if r.ID == 0 {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete(rValues)] missing 'r.ID'")
+    }
+
+    // lookup the ID field only, ignore any other fields
+    rQuery := new(Record)
+    rQuery.ID = r.ID
+
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record not found")
+    }
+
+    return deleteRecord(rPrivate)
 }
 
 // -----------------------------------------------------------------------------
 //
 // naming guidelines:
 //
-// - (r *Record)         the result of the create method and the GetRecord method (hosts.go)
-//                           this may not include the computed fields
+// - (r *Record)         the result of the public CreateRecord method and LookupRecord method
+//                           this doesn't include the computed fields (always use a read method to get the computed fields)
+//                           this doesn't include private fields
 //
-//                       the input for the read/update/delete methods
-//                           this must include the private 'id' field (meaning it is indexed)
+//                       the result of the private createRecord method and lookupRecord method (hosts.go)
+//                           this doesn't include the computed fields (always use a read method to get the computed fields)
 //
-// - (rQuery *Record)    the input for the GetRecord method (hosts.go)
-//                           this must include at least one of the indexed fields
+//                       the anchor for the public Read/Update/Delete methods
+//                           this must include the 'ID' field
 //
-//   (rValues *Record)   the input for the create/update methods
-//                           for a create method, this must include all writeMany and writeOnce fields
-//                           for an update method, this must include all writeMany fields
+//                       the input for the private readRecord/updateRecord/deleteRecord methods
+//                           this must include the private 'id' field
 //
-// - (record *Record)    the result of the read method and the CreateRecord method (zone.go)
-//                           this always includes all computed fields
+// - (rQuery *Record)    the input for the public LookupRecord method
+//                       the input for the private lookupRecord method (hosts.go)
+//                           this should include at least one of the indexed fields
+//
+//   (rValues *Record)   the input for the public CreateRecord/Update methods
+//                       the input for the private createRecord/updateRecord methods
+//                           for a create method, this must include *all* writeMany and writeOnce fields
+//                           for an update method, this must include *all* writeMany fields
+//
+// - (record *Record)    the result of the public Read method
+//                       the result of the private readRecord method
+//                           this does include all computed fields
 //
 // -----------------------------------------------------------------------------
 
 func createRecord(rValues *Record) error {
+    // create record
+    r := new(Record)
+    r.Zone    = rValues.Zone
+    r.Address = rValues.Address
+    r.Names   = make([]string, len(rValues.Names))
+    copy(r.Names, rValues.Names)
+    r.Comment = rValues.Comment
+    r.Notes   = rValues.Notes
+    r.Managed = rValues.Managed
+
+    addRecord(r)   // adds r.ID and r.id
+
+//    managed := rValues.Managed   // managed when called from CreateRecord, unmanaged when called from goScanLines (zone.go)
+
     return nil
 }
 
 func readRecord(r *Record) (record *Record, err error) {
-    return record, nil
+    return r, nil
 }
 
 func updateRecord(r *Record, rValues *Record) error {
@@ -98,5 +209,15 @@ func updateRecord(r *Record, rValues *Record) error {
 }
 
 func deleteRecord(r *Record) error {
+    // remove and zero file object
+    r.Zone    = 0
+    r.Address = ""
+    r.Names   = make([]string, 0)
+    r.Comment = ""
+    r.Notes   = ""
+    r.Managed = false
+
+    removeRecord(r)   // zeroes r.ID and r.id
+
     return nil
 }
