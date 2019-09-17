@@ -1,3 +1,9 @@
+//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
 package api
 
 import (
