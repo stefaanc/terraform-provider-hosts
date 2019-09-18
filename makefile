@@ -107,4 +107,4 @@ else
 	cp -f $(PLUGIN_PATH)/$(PLUGIN_FILE) $(RELEASE_PATH)/$(PLUGIN_FILE)
 endif
 
-release: tidy test cover build $(RELEASE_PATH)/$(PLUGIN_FILE)
+release: tidy test report build $(RELEASE_PATH)/$(PLUGIN_FILE)

@@ -7,8 +7,10 @@
 package api
 
 import (
+    "bytes"
     "crypto/sha1"
     "encoding/hex"
+    "io"
     "io/ioutil"
     "os"
     "testing"
@@ -598,10 +600,15 @@ func Test_fUpdate(t *testing.T) {
         addFile(f)
         f.ID = 0
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -632,10 +639,15 @@ func Test_fUpdate(t *testing.T) {
         f.Path = path
         f.ID = 1
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -666,10 +678,15 @@ func Test_fUpdate(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -699,10 +716,15 @@ func Test_fUpdate(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = f.Update(fValues)
 
@@ -737,10 +759,15 @@ func Test_updateFile(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = updateFile(f, fValues)
 
@@ -758,10 +785,77 @@ func Test_updateFile(t *testing.T) {
 
             // --------------------
 
-            checksum := sha1.Sum([]byte("# some updated data"))
+            checksum := sha1.Sum([]byte(z.lines[0] + "\n"))
             expected := hex.EncodeToString(checksum[:])
             if f.checksum != expected {
                 t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+            }
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "not-needed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data\n")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ updateFile() ] cannot write test-file")
+        }
+     
+        info, err := os.Stat(path)
+        if err != nil {
+            t.Errorf("[ updateFile() ] cannot stat test-file")
+        }
+        fileLastModified := info.ModTime()
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some data")
+        addZone(z)
+
+        checksum := sha1.Sum([]byte(z.lines[0] + "\n"))
+        f.checksum = hex.EncodeToString(checksum[:])
+
+        // --------------------
+
+        fValues := new(File)
+
+        err = updateFile(f, fValues)
+
+        // --------------------
+
+        if err != nil {
+            t.Errorf("[ updateFile(f) ] expected: %#v, actual: %#v", nil, err)
+        }
+
+        // --------------------
+
+        if f == nil {
+            t.Errorf("[ updateFile(f) ] expected: %s, actual: %#v", "not <nil>", f)
+        } else {
+
+            // --------------------
+     
+            info, err := os.Stat(path)
+            if err != nil {
+                t.Errorf("[ updateFile() ] cannot stat written-file")
+            }
+            fLastModified := info.ModTime()
+
+            if fLastModified != fileLastModified {
+                t.Errorf("[ f.lastModified ] expected: %#v, actual: %#v", fileLastModified, fLastModified)
             }
         }
 
@@ -785,10 +879,15 @@ func Test_updateFile(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        z := new(Zone)
+        z.File = int(f.id)
+        z.Name = "external"
+        z.lines = append(z.lines, "# some updated data")
+        addZone(z)
+
         // --------------------
 
         fValues := new(File)
-//        fValues.data = []byte("# some updated data")
 
         err = updateFile(f, fValues)
 
@@ -938,6 +1037,7 @@ func Test_deleteFile(t *testing.T) {
         f := new(File)
         f.Path = path
         f.Notes = "..."
+        f.checksum = "x"
         addFile(f)
 
         // --------------------
@@ -992,6 +1092,59 @@ func Test_deleteFile(t *testing.T) {
         os.Remove(path)
     })
 
+    test = "existing-zones"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte("# some data")
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ f.Delete() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        z := new(Zone)
+        z.File = f.ID
+        z.Name = "external"
+        addZone(z)
+
+        // --------------------
+
+        err = f.Delete()
+
+        // --------------------
+
+        if err != nil {
+            t.Errorf("[ deleteFile(f) ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            f = lookupFile(f)
+            if f != nil {
+                t.Errorf("[ lookupFile(f) ] expected: %#v, actual: %#v", nil, f)
+            }
+
+            // --------------------
+
+            readData, err := ioutil.ReadFile(path)
+            if err != nil {
+                t.Errorf("[ ioutil.ReadFile(fValues.Path) ] expected: %s, actual: %#v", "not <nil>", err)
+            } else if len(readData) != len(data) {
+                t.Errorf("[ len(ioutil.ReadFile(fValues.Path)) ] expected: %#v, actual: %#v", len(data), len(readData))
+            }
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
     test = "cannot-delete"
     t.Run(test, func(t *testing.T) {
 
@@ -1010,5 +1163,483 @@ func Test_deleteFile(t *testing.T) {
         if err == nil {
             t.Errorf("[ deleteFile(f) ] expected: %s, actual: %#v", "<error>", err)
         }
+    })
+}
+
+func Test_goRenderZones(t *testing.T) {
+    var test string
+
+    test = "rendered/only-external"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        z := new(Zone)
+        z.File = f.ID
+        z.Name = "external"
+        z.lines = append(z.lines, "")
+        z.lines = append(z.lines, "# some data")
+        addZone(z)
+
+        expectedData := []byte(`
+# some data
+`)
+
+        // --------------------
+
+        b := bytes.NewBuffer([]byte(nil))
+        done := goRenderZones(f, io.Writer(b))
+        _ = <-done
+        data := b.Bytes()
+
+        // --------------------
+
+        expectedChecksum := sha1.Sum(expectedData)
+        actualChecksum := sha1.Sum(data)
+        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
+            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        }
+    })
+
+    test = "rendered/1-managed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        z1 := new(Zone)
+        z1.File = f.ID
+        z1.Name = "external"
+        z1.lines = append(z1.lines, "")
+        z1.lines = append(z1.lines, "# some data")
+        z1.lines = append(z1.lines, "")
+        addZone(z1)
+
+        z2 := new(Zone)
+        z2.File = f.ID
+        z2.Name = "my-zone-1"
+        z2.lines = append(z2.lines, "")
+        z2.lines = append(z2.lines, "# some data")
+        z2.lines = append(z2.lines, "")
+        addZone(z2)
+
+        expectedData := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+`)
+
+        // --------------------
+
+        b := bytes.NewBuffer([]byte(nil))
+        done := goRenderZones(f, io.Writer(b))
+        _ = <-done
+        data := b.Bytes()
+
+        // --------------------
+
+        expectedChecksum := sha1.Sum(expectedData)
+        actualChecksum := sha1.Sum(data)
+        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
+            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        }
+    })
+
+    test = "rendered/more-managed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        z1 := new(Zone)
+        z1.File = f.ID
+        z1.Name = "external"
+        z1.lines = append(z1.lines, "")
+        z1.lines = append(z1.lines, "# some data")
+        z1.lines = append(z1.lines, "")
+        addZone(z1)
+
+        z2 := new(Zone)
+        z2.File = f.ID
+        z2.Name = "my-zone-1"
+        z2.lines = append(z2.lines, "")
+        z2.lines = append(z2.lines, "# some data")
+        z2.lines = append(z2.lines, "")
+        addZone(z2)
+
+        z3 := new(Zone)
+        z3.File = f.ID
+        z3.Name = "my-zone-2"
+        z3.lines = append(z3.lines, "")
+        z3.lines = append(z3.lines, "# some data")
+        z3.lines = append(z3.lines, "")
+        addZone(z3)
+
+        expectedData := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+##### Start Of Terraform Zone: my-zone-2 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-2 #########################################
+`)
+
+        // --------------------
+
+        b := bytes.NewBuffer([]byte(nil))
+        done := goRenderZones(f, io.Writer(b))
+        _ = <-done
+        data := b.Bytes()
+
+        // --------------------
+
+        expectedChecksum := sha1.Sum(expectedData)
+        actualChecksum := sha1.Sum(data)
+        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
+            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        }
+    })
+}
+
+func Test_goScanZones(t *testing.T) {
+    var test string
+
+    test = "scanned/only-external"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+`)
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ goScanZones() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.Notes = "..."
+        addFile(f)
+
+        // --------------------
+
+        done := goScanZones(f, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 2 {
+                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 2, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "scanned/1-managed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+
+# some final data
+`)
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ goScanZones() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.Notes = "..."
+        addFile(f)
+
+        // --------------------
+
+        done := goScanZones(f, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 5 {
+                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 5, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z = lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 3 {
+                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "scanned/more-managed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+
+# some other data
+
+##### Start Of Terraform Zone: my-zone-2 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-2 #########################################
+
+# some final data
+`)
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ goScanZones() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.Notes = "..."
+        addFile(f)
+
+        // --------------------
+
+        done := goScanZones(f, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 8 {
+                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 8, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z = lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 3 {
+                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-2"
+        z = lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > my-zone-2 ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 3 {
+                t.Errorf("[ goScanZones() > my-zone-2.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "missing-end-marker"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+`)
+        err := ioutil.WriteFile(path, data, 0644)
+        if err != nil {
+            t.Errorf("[ goScanZones() ] cannot write test-file")
+        }
+
+        f := new(File)
+        f.Path = path
+        f.Notes = "..."
+        addFile(f)
+
+        // --------------------
+
+        done := goScanZones(f, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 3 {
+                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z = lookupZone(zQuery)
+
+        // --------------------
+
+        if z == nil {
+            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+        } else {
+
+            // --------------------
+
+            if len(z.lines) != 3 {
+                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            }
+
+        }
+
+        // --------------------
+
+        os.Remove(path)
     })
 }

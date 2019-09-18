@@ -54,13 +54,13 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/stefaanc/terraform-provider-hosts/api/file.go (73.9%)</option>
+				<option value="file0">github.com/stefaanc/terraform-provider-hosts/api/file.go (94.0%)</option>
 				
 				<option value="file1">github.com/stefaanc/terraform-provider-hosts/api/hosts.go (100.0%)</option>
 				
 				<option value="file2">github.com/stefaanc/terraform-provider-hosts/api/record.go (61.8%)</option>
 				
-				<option value="file3">github.com/stefaanc/terraform-provider-hosts/api/zone.go (64.9%)</option>
+				<option value="file3">github.com/stefaanc/terraform-provider-hosts/api/zone.go (69.4%)</option>
 				
 				</select>
 			</div>
@@ -74,7 +74,13 @@
 		</div>
 		<div id="content">
 		
-		<pre class="file" id="file0" style="display: none">package api
+		<pre class="file" id="file0" style="display: none">//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
+package api
 
 import (
     "bufio"
@@ -85,6 +91,7 @@ import (
     //"fmt"
     "io"
     "io/ioutil"
+    "log"
     "os"
     "strings"
 )
@@ -248,7 +255,7 @@ func createFile(fValues *File) error <span class="cov8" title="1">{
         }</span>
 
         <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
-            removeFile(f)                                                       // need to remove zones/records too !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            removeFile(f)
             return err
         }</span>
     }
@@ -256,14 +263,10 @@ func createFile(fValues *File) error <span class="cov8" title="1">{
     f.checksum = hex.EncodeToString(checksum[:])
 
     // process data
-    cerr := goScanZones(f, bytes.NewReader(data))
-    err = &lt;-cerr
-    if err != nil </span><span class="cov0" title="0">{
-        removeFile(f)                                                           // need to remove zones/records too !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        return err
-    }</span>
+    done := goScanZones(f, bytes.NewReader(data))
+    _ = &lt;-done
 
-    <span class="cov8" title="1">return nil</span>
+    return nil</span>
 }
 
 func readFile(f *File) (file *File, err error) <span class="cov8" title="1">{
@@ -272,32 +275,41 @@ func readFile(f *File) (file *File, err error) <span class="cov8" title="1">{
     if err != nil </span><span class="cov8" title="1">{
         return nil, err
     }</span>
+
     <span class="cov8" title="1">checksum := sha1.Sum(data)
     newChecksum := hex.EncodeToString(checksum[:])
 
     if f.checksum != newChecksum </span><span class="cov8" title="1">{
-        f.checksum = newChecksum
-
         // process data
-        cerr := goScanZones(f, bytes.NewReader(data))
-        err = &lt;-cerr
-        if err != nil </span><span class="cov0" title="0">{
-            return nil, err
-        }</span>
-    }
+        b := bytes.NewBuffer(data)
+        done := goScanZones(f, io.Reader(b))
+        _ = &lt;-done
+
+        f.checksum = newChecksum
+    }</span>
 
     <span class="cov8" title="1">return f, nil</span>
 }
 
 func updateFile(f *File, fValues *File) error <span class="cov8" title="1">{
-    data:= []byte("# some updated data")                                        // TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    checksum := sha1.Sum(data)                                                  // TBD
-    f.checksum = hex.EncodeToString(checksum[:])                                // TBD
+    // collect data
+    b := bytes.NewBuffer([]byte(nil))
+    done := goRenderZones(f, io.Writer(b))
+    _ = &lt;-done
+    data := b.Bytes()
 
-    err := ioutil.WriteFile(f.Path, data, 0644)
-    if err != nil </span><span class="cov8" title="1">{
-        return err
-    }</span>
+    checksum := sha1.Sum(data)
+    newChecksum := hex.EncodeToString(checksum[:])
+
+    if f.checksum !=  newChecksum </span><span class="cov8" title="1">{
+        // write physical file
+        err := ioutil.WriteFile(f.Path, data, 0644)
+        if err != nil </span><span class="cov8" title="1">{
+            return err
+        }</span>
+
+        <span class="cov8" title="1">f.checksum = newChecksum</span>
+    }
 
     <span class="cov8" title="1">return nil</span>
 }
@@ -313,28 +325,107 @@ func deleteFile(f *File) error <span class="cov8" title="1">{
 
     removeFile(f)   // zeroes f.ID and f.id
 
-    // delete physical file
-    err := os.Remove(path)
-    if err != nil </span><span class="cov8" title="1">{
-        return err
-    }</span>
+    if len(hosts.zoneIndex) == 0 </span><span class="cov8" title="1">{
+        // delete physical file
+        err := os.Remove(path)
+        if err != nil </span><span class="cov8" title="1">{
+            return err
+        }</span>
+    }
 
     <span class="cov8" title="1">return nil</span>
 }
 
 // -----------------------------------------------------------------------------
 
-func goScanZones(f *File, r io.Reader) chan error <span class="cov8" title="1">{
-    cerr := make(chan error)
+var startMarker string = "##### Start Of Terraform Zone: "
+var endMarker string   = "##### End Of Terraform Zone: "
 
-    go func(cerr chan error) </span><span class="cov8" title="1">{
-        defer close(cerr)
+// -----------------------------------------------------------------------------
 
-        startMarker := "##### Start Of Terraform Zone: "
-        endMarker   := "##### End Of Terraform Zone: "
+func goRenderZones(f *File, w io.Writer) chan bool <span class="cov8" title="1">{
+    done := make(chan bool)
 
-        // create a hash for the checksum of the file
-//        hash := sha1.New()
+    go func() </span><span class="cov8" title="1">{
+        defer close(done)
+
+        // Remark:
+        // io.WriteString error cannot happen with the current implementation of updateFile
+        // this would need an io.Writer writing to file instead of to buffer
+        // we leave this for later development
+        // for now we throw a fatal error in case my assumptions are/become wrong
+
+        // render lines for the default external zone
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        lines := goRenderLines(z)
+        for line := range lines </span><span class="cov8" title="1">{
+            _, err := io.WriteString(w, line + "\n")
+            if err != nil </span><span class="cov0" title="0">{   // cannot happen
+                log.Fatal(err)
+                // done &lt;- true
+                // return
+            }</span>
+        }
+
+        <span class="cov8" title="1">for _, zone := range hosts.zoneFiles[f.id] </span><span class="cov8" title="1">{
+            if zone.Name == "external" </span><span class="cov8" title="1">{
+                continue</span>
+            }
+
+            <span class="cov8" title="1">line := startMarker + zone.Name + " "
+            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
+            _, err := io.WriteString(w, line)
+            if err != nil </span><span class="cov0" title="0">{   // cannot happen
+                log.Fatal(err)
+                // done &lt;- true
+                // return
+            }</span>
+
+            <span class="cov8" title="1">lines := goRenderLines(zone)
+            for line := range lines </span><span class="cov8" title="1">{
+                _, err = io.WriteString(w, line + "\n")
+                if err != nil </span><span class="cov0" title="0">{   // cannot happen
+                    log.Fatal(err)
+                    // done &lt;- true
+                    // return
+                }</span>
+            }
+
+            <span class="cov8" title="1">line = endMarker + zone.Name + " "
+            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
+            _, err = io.WriteString(w, line)
+            if err != nil </span><span class="cov0" title="0">{   // cannot happen
+                log.Fatal(err)
+                // done &lt;- true
+                // return
+            }</span>
+        }
+
+        // finish goRenderZones()
+        <span class="cov8" title="1">done &lt;- true
+        return</span>
+    }()
+
+    <span class="cov8" title="1">return done</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanZones(f *File, r io.Reader) chan bool <span class="cov8" title="1">{
+    done := make(chan bool)
+
+    go func() </span><span class="cov8" title="1">{
+        defer close(done)
+
+        // Remark:
+        // Scanner error cannot happen with the current implementation of createFile/readFile
+        // this would need an io.Reader reading from file instead of from buffer
+        // we leave this for later development
+        // for now we throw a fatal error in case my assumptions are/become wrong
 
         // create the default external zone
         zone := "external"
@@ -343,38 +434,29 @@ func goScanZones(f *File, r io.Reader) chan error <span class="cov8" title="1">{
         zValues.File = f.ID
         zValues.Name = zone
         err := createZone(zValues)
-        if err != nil </span><span class="cov0" title="0">{
-            cerr &lt;- err
-            return
+        if err != nil </span><span class="cov0" title="0">{   // cannot happen
+            log.Fatal(err)
+            //done &lt;- true
+            //return
         }</span>
         <span class="cov8" title="1">z := lookupZone(zValues)
 
         // create a channel to the external zone
         lines := make(chan string)
-        cerr2 := goScanLines(z, lines)
+        done2 := goScanLines(z, lines)
 
         // save this channel for later use
         linesExternal := lines
-        cerrExternal := cerr2
+        doneExternal := done2
 
         // start scanning
-//        firstLine := true
         scanner := bufio.NewScanner(r)
         for scanner.Scan() </span><span class="cov8" title="1">{
             line := scanner.Text()
 
-            // update hash
-            // in this case, it is safe ignore errors from io.WriteString
-//            if firstLine {
-//                firstLine = false
-//                _, _ = io.WriteString(hash, line)
-//            } else {
-//                _, _ = io.WriteString(hash, "\n" + line)
-//            }
-
             // scan line
             if lines == linesExternal </span><span class="cov8" title="1">{
-                if strings.HasPrefix(line, startMarker) </span><span class="cov0" title="0">{
+                if strings.HasPrefix(line, startMarker) </span><span class="cov8" title="1">{
                     // line is a marker for the start of new zone
                     // create new zone
                     zone = strings.Trim(line[len(startMarker):], " #")
@@ -383,37 +465,31 @@ func goScanZones(f *File, r io.Reader) chan error <span class="cov8" title="1">{
                     zValues.File = f.ID
                     zValues.Name = zone
                     err = createZone(zValues)
-                    if err != nil </span><span class="cov0" title="0">{
+                    if err != nil </span><span class="cov0" title="0">{   // cannot happen
                         close(lines)
-                        cerr &lt;- err
-                        return
+                        log.Fatal(err)
+                        //done &lt;- true
+                        //return
                     }</span>
-                    <span class="cov0" title="0">z := lookupZone(zValues)
+                    <span class="cov8" title="1">z := lookupZone(zValues)
 
                     // create a channel to the new zone
                     lines = make(chan string)
-                    cerr2 = goScanLines(z, lines)
+                    done2 = goScanLines(z, lines)
 
                     continue</span>
                 } 
-            } else<span class="cov0" title="0"> {
-                if strings.HasPrefix(line, endMarker + zone) </span><span class="cov0" title="0">{
+            } else<span class="cov8" title="1"> {
+                if strings.HasPrefix(line, endMarker + zone) </span><span class="cov8" title="1">{
                     // line is a marker for the end of current zone
-                    // wait for goScanLines(z) of the current zone to finish
+                    // wait for goScanLines() of the current zone to finish
                     close(lines)
-                    err = &lt;-cerr2
-                    if err != nil </span><span class="cov0" title="0">{
-                        if lines != linesExternal </span><span class="cov0" title="0">{
-                            close(linesExternal)
-                        }</span>
-                        <span class="cov0" title="0">cerr &lt;- err
-                        return</span>
-                    }
+                    _ = &lt;-done2
 
                     // back to external zone
-                    <span class="cov0" title="0">zone = "external"
+                    zone = "external"
                     lines = linesExternal
-                    cerr2 = cerrExternal
+                    done2 = doneExternal
 
                     continue</span>
                 }
@@ -422,50 +498,44 @@ func goScanZones(f *File, r io.Reader) chan error <span class="cov8" title="1">{
             // line is not a marker =&gt; send to scanLines(z) it
             <span class="cov8" title="1">lines &lt;- line</span>
         }
-        <span class="cov8" title="1">if err := scanner.Err(); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err := scanner.Err(); err != nil </span><span class="cov0" title="0">{   // cannot happen
             // scanner error
-            close(lines)
             if lines != linesExternal </span><span class="cov0" title="0">{
-                close(linesExternal)
+                close(lines)
             }</span>
-            <span class="cov0" title="0">cerr &lt;- err
-            return</span>
+            <span class="cov0" title="0">close(linesExternal)
+            log.Fatal(err)</span>
+            //done &lt;- true
+            //return
         }
 
-        <span class="cov8" title="1">if lines != linesExternal </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if lines != linesExternal </span><span class="cov8" title="1">{
             // missing end-marker for current zone =&gt; silently ignore
             // wait for goScanLines(z) of the current zone to finish
             close(lines)
-            err = &lt;-cerr2
-            if err != nil </span><span class="cov0" title="0">{
-                close(linesExternal)
-                cerr &lt;- err
-                return
-            }</span>
-        }
+            _ = &lt;-done2
+        }</span>
 
         // wait for goScanLines(z) of the external zone to finish
         <span class="cov8" title="1">close(linesExternal)
-        err = &lt;-cerrExternal
-        if err != nil </span><span class="cov0" title="0">{
-            cerr &lt;- err
-            return
-        }</span>
+        _ = &lt;-doneExternal
 
-        // save checksum of the file
-//        checksum := hash.Sum(nil)
-//        f.checksum = hex.EncodeToString(checksum[:])
-
-        // finish goScanZones(f, r)
-        <span class="cov8" title="1">cerr &lt;- nil
+        // finish goScanZones()
+        done &lt;- true
         return</span>
-    }(cerr)
+    }()
 
-    <span class="cov8" title="1">return cerr</span>
+    <span class="cov8" title="1">return done</span>
 }
 </pre>
 		
-		<pre class="file" id="file1" style="display: none">package api
+		<pre class="file" id="file1" style="display: none">//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
+package api
 
 import (
 )
@@ -986,7 +1056,13 @@ func deleteFromSliceOfRecords(rs []*Record, r *Record) []*Record <span class="co
 // -----------------------------------------------------------------------------
 </pre>
 		
-		<pre class="file" id="file2" style="display: none">package api
+		<pre class="file" id="file2" style="display: none">//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
+package api
 
 import (
     "errors"
@@ -1210,10 +1286,19 @@ func deleteRecord(r *Record) error <span class="cov8" title="1">{
     return nil
 }</pre>
 		
-		<pre class="file" id="file3" style="display: none">package api
+		<pre class="file" id="file3" style="display: none">//
+// Copyright (c) 2019 Stefaan Coussement
+// MIT License
+//
+// more info: https://github.com/stefaanc/terraform-provider-hosts
+//
+package api
 
 import (
+    "crypto/sha1"
     "errors"
+    "encoding/hex"
+    "io"
 )
 
 // -----------------------------------------------------------------------------
@@ -1372,9 +1457,11 @@ func (z *Zone) Delete() error <span class="cov8" title="1">{
 func createZone(zValues *Zone) error <span class="cov8" title="1">{
     // create zone
     z := new(Zone)
-    z.File    = zValues.File
-    z.Name    = zValues.Name
-    z.Notes   = zValues.Notes
+    z.File  = zValues.File
+    z.Name  = zValues.Name
+    z.Notes = zValues.Notes
+
+//    z.lines = make([]string, 0)                                               // TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     addZone(z)   // adds z.ID and z.id
 
@@ -1402,21 +1489,48 @@ func deleteZone(z *Zone) error <span class="cov8" title="1">{
 
 // -----------------------------------------------------------------------------
 
-func goScanLines(z *Zone, lines &lt;-chan string) chan error <span class="cov8" title="1">{
-    cerr := make(chan error)
+func goRenderLines(z *Zone) chan string <span class="cov8" title="1">{
+    lines := make(chan string)
 
     go func() </span><span class="cov8" title="1">{
-        defer close(cerr)
+        defer close(lines)
+
+        for _, line := range z.lines </span><span class="cov8" title="1">{
+            lines &lt;- line
+        }</span>
+    }()
+
+    <span class="cov8" title="1">return lines</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanLines(z *Zone, lines &lt;-chan string) chan bool <span class="cov8" title="1">{
+    done := make(chan bool)
+
+    go func() </span><span class="cov8" title="1">{
+        defer close(done)
+
+        // create a hash for the checksum of the zone
+        hash := sha1.New()
         
-        for _ = range lines </span>{<span class="cov8" title="1">
-//            ...
+        for line := range lines </span><span class="cov8" title="1">{
+            // update hash
+            _, _ = io.WriteString(hash, line)
+
+            // update zone
+            z.lines = append(z.lines, line)
         }</span>
 
-        <span class="cov8" title="1">cerr &lt;- nil
+        // save checksum of the zone
+        <span class="cov8" title="1">checksum := hash.Sum(nil)
+        z.checksum = hex.EncodeToString(checksum[:])
+
+        done &lt;- true
         return</span>
     }()
 
-    <span class="cov8" title="1">return cerr</span>
+    <span class="cov8" title="1">return done</span>
 }
 </pre>
 		

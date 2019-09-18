@@ -7,7 +7,10 @@
 package api
 
 import (
+    "crypto/sha1"
     "errors"
+    "encoding/hex"
+    "io"
 )
 
 // -----------------------------------------------------------------------------
@@ -166,9 +169,11 @@ func (z *Zone) Delete() error {
 func createZone(zValues *Zone) error {
     // create zone
     z := new(Zone)
-    z.File    = zValues.File
-    z.Name    = zValues.Name
-    z.Notes   = zValues.Notes
+    z.File  = zValues.File
+    z.Name  = zValues.Name
+    z.Notes = zValues.Notes
+
+//    z.lines = make([]string, 0)                                               // TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     addZone(z)   // adds z.ID and z.id
 
@@ -196,19 +201,46 @@ func deleteZone(z *Zone) error {
 
 // -----------------------------------------------------------------------------
 
-func goScanLines(z *Zone, lines <-chan string) chan error {
-    cerr := make(chan error)
+func goRenderLines(z *Zone) chan string {
+    lines := make(chan string)
 
     go func() {
-        defer close(cerr)
+        defer close(lines)
+
+        for _, line := range z.lines {
+            lines <- line
+        }
+    }()
+
+    return lines
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanLines(z *Zone, lines <-chan string) chan bool {
+    done := make(chan bool)
+
+    go func() {
+        defer close(done)
+
+        // create a hash for the checksum of the zone
+        hash := sha1.New()
         
-        for _ = range lines {
-//            ...
+        for line := range lines {
+            // update hash
+            _, _ = io.WriteString(hash, line)
+
+            // update zone
+            z.lines = append(z.lines, line)
         }
 
-        cerr <- nil
+        // save checksum of the zone
+        checksum := hash.Sum(nil)
+        z.checksum = hex.EncodeToString(checksum[:])
+
+        done <- true
         return
     }()
 
-    return cerr
+    return done
 }
