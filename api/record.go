@@ -7,29 +7,34 @@
 package api
 
 import (
+    "crypto/sha1"
     "errors"
+    "encoding/hex"
+    "io"
+    "log"
+    "strings"
 )
 
 // -----------------------------------------------------------------------------
 
 type Record struct {
     // readOnly
-    ID      int        // indexed   // read-write in a rQuery
+    ID         int        // indexed   // read-write in a rQuery
     // read-writeOnce
-    Zone    int        // indexed   // read-write in a rQuery
+    Zone       int        // indexed
+    Address    string     // indexed
+    Names      []string   // indexed
     // read-writeMany
-    Address string     // indexed
-    Names   []string   // indexed
-    Comment string
-    Notes   string
-    // readOnly
-    Managed bool
+    Comment    string
+    Notes      string
     // readOnly        //-computed
-//    FQDN       string
-//    Domain     string
-//    RootDomain string
+//    FQDN         string
+//    Domain       string
+//    RootDomain   string
     // private
-    id      recordID
+    id         recordID
+    managed    bool
+    zoneRecord *recordObject   // !!! beware of memory leaks
 }
 
 func LookupRecord(rQuery *Record) (r *Record) {
@@ -47,7 +52,6 @@ func LookupRecord(rQuery *Record) (r *Record) {
     copy(r.Names, rPrivate.Names)
     r.Comment = rPrivate.Comment
     r.Notes   = rPrivate.Notes
-    r.Managed   = rPrivate.Managed
     // ignore computed fields
 
     return r
@@ -64,20 +68,30 @@ func CreateRecord(rValues *Record) error {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Names'")
     }
 
+    // check zone
+    zQuery := new(Zone)
+    zQuery.ID = rValues.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'rValues.Zone' not found")
+    }
+    if zPrivate.Name == "external" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] cannot create records in the \"external\" zone")
+    }
+
     // lookup all indexed fields except ID
     rQuery := new(Record)
     rQuery.Zone    = rValues.Zone
     rQuery.Address = rValues.Address
     rQuery.Names   = make([]string, len(rValues.Names))
     copy(rQuery.Names, rValues.Names)
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with similar properties already exists")
     }
 
     // take ownership
-    rValues.Managed = true
+    rValues.managed = true
 
     return createRecord(rValues)   // rValues.ID will be ignored
 }
@@ -90,12 +104,20 @@ func (r *Record) Read() (record *Record, err error) {
     // lookup the ID field only, ignore any other fields
     rQuery := new(Record)
     rQuery.ID = r.ID
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record not found")
     }
 
+    // check zone
+    zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil {
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone for record 'r.ID' not found")
+    }
+
+    // read record
     rPrivate, err = readRecord(rPrivate)
     if err != nil {
         return nil, err
@@ -110,7 +132,6 @@ func (r *Record) Read() (record *Record, err error) {
     copy(record.Names, rPrivate.Names)
     record.Comment = rPrivate.Comment
     record.Notes   = rPrivate.Notes
-    record.Managed = rPrivate.Managed
     // no computed fields
 
     return record, nil
@@ -120,20 +141,26 @@ func (r *Record) Update(rValues *Record) error {
     if r.ID == 0 {
         return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'r.ID'")
     }
-    if rValues.Address == "" {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Address'")
-    }
-    if len(rValues.Names) == 0 {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Names'")
-    }
 
     // lookup the ID field only, ignore any other fields
     rQuery := new(Record)
     rQuery.ID = r.ID
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record not found")
+    }
+
+    // check zone
+    zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone for record 'r.ID' not found")
+    }
+    if zPrivate.Name == "external" {
+        if rQuery.Comment != rPrivate.Comment {
+            return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] cannot update 'r.Comment' for records in the \"external\" zone")
+        }
     }
 
     return updateRecord(rPrivate, rValues)   // rValues.ID and rValues.Zone will be ignored
@@ -141,16 +168,26 @@ func (r *Record) Update(rValues *Record) error {
 
 func (r *Record) Delete() error {
     if r.ID == 0 {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete(rValues)] missing 'r.ID'")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] missing 'r.ID'")
     }
 
     // lookup the ID field only, ignore any other fields
     rQuery := new(Record)
     rQuery.ID = r.ID
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record not found")
+    }
+
+    // check zone
+    zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] zone for record 'r.ID' not found")
+    }
+    if zPrivate.Name == "external" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] cannot delete records in the \"external\" zone")
     }
 
     return deleteRecord(rPrivate)
@@ -191,39 +228,262 @@ func (r *Record) Delete() error {
 func createRecord(rValues *Record) error {
     // create record
     r := new(Record)
-    r.Zone    = rValues.Zone
-    r.Address = rValues.Address
-    r.Names   = make([]string, len(rValues.Names))
+    r.Zone       = rValues.Zone
+    r.Address    = rValues.Address
+    r.Names      = make([]string, len(rValues.Names))
     copy(r.Names, rValues.Names)
-    r.Comment = rValues.Comment
-    r.Notes   = rValues.Notes
-    r.Managed = rValues.Managed
+    r.Comment    = rValues.Comment
+    r.Notes      = rValues.Notes
 
-    addRecord(r)   // adds r.ID and r.id
+    r.managed    = rValues.managed      // requested by CreateRecord()
+    r.zoneRecord = rValues.zoneRecord   // requested by goScanRecord()
 
-//    managed := rValues.Managed   // managed when called from CreateRecord, unmanaged when called from goScanLines (zone.go)
+    addRecord(r)   // updates r.ID and r.id
+
+    if rValues.zoneRecord == nil {   // if requested by CreateRecord()
+        // add the record to the zone
+        zoneRecord := new(recordObject)
+        zoneRecord.record = r       // !!! beware of memory leaks
+        r.zoneRecord = zoneRecord   // !!! beware of memory leaks
+
+        zQuery := new(Zone)
+        zQuery.ID = r.Zone
+        z := lookupZone(zQuery)
+        addRecordObject(z, zoneRecord)
+    
+        // render record
+        renderRecord(r)   // updates lines & checksum
+
+        // update zone
+        err := updateZone(z, z)
+        if err != nil {
+            // restore consistent state
+            r.zoneRecord = nil   // !!! avoid memory leaks
+            removeRecordObject(z, zoneRecord)
+            removeRecord(r)
+
+            return err
+        }
+    }
 
     return nil
 }
 
 func readRecord(r *Record) (record *Record, err error) {
-    return r, nil
+    // read zone
+    zQuery := new(Zone)
+    zQuery.ID = r.Zone
+    z := lookupZone(zQuery)
+    _, err = readZone(z)
+    if err != nil {
+        return nil, err
+    }
+
+    // don't return r, instead lookup record
+    // - to cover case where record was deleted by external programs
+    rQuery := new(Record)
+    rQuery.ID = r.ID
+    record = lookupRecord(rQuery)
+
+    // no computed fields
+
+    return record, nil
 }
 
 func updateRecord(r *Record, rValues *Record) error {
+    comment := r.Comment   // save so we can restore if needed
+    notes   := r.Notes     // save so we can restore if needed
+    oldChecksum := r.zoneRecord.checksum   // save to compare old with new
+
+    // update record
+    r.Comment  = rValues.Comment
+    r.Notes    = rValues.Notes
+
+    if rValues.zoneRecord == nil {   // if requested by r.Update()
+        // render record to calculate new checksum
+        renderRecord(r)   // updates lines & checksum
+        
+        if r.zoneRecord.checksum != oldChecksum {
+            // update zone
+            zQuery := new(Zone)
+            zQuery.ID = r.Zone
+            z := lookupZone(zQuery)
+            err := updateZone(z, z)
+            if err != nil {
+                // restore consistent state
+                r.Comment = comment
+                r.Notes   = notes
+                renderRecord(r)
+
+                return err
+            }
+        }
+    } else {                         // requested by goScanRecord()
+        // update record & recordObject
+        r.zoneRecord = rValues.zoneRecord   // !!! beware of memory leaks
+        r.zoneRecord.record = r             // !!! beware of memory leaks
+    }
+
     return nil
 }
 
 func deleteRecord(r *Record) error {
-    // remove and zero file object
-    r.Zone    = 0
-    r.Address = ""
-    r.Names   = make([]string, 0)
-    r.Comment = ""
-    r.Notes   = ""
-    r.Managed = false
+    // remove the record from the zone
+    if r.zoneRecord != nil {   // if requested by r.Delete()
+        zQuery := new(Zone)
+        zQuery.ID = r.Zone
+        z := lookupZone(zQuery)
+
+        oldZoneRecord := r.zoneRecord   // save so we can restore if needed
+        r.zoneRecord = nil              // !!! avoid memory leaks
+        removeRecordObject(z, r.zoneRecord)
+
+        var err error
+        if len(z.records) > 0 {
+            err = updateZone(z, z)
+        } else {
+            err = deleteZone(z)
+        }
+        if err != nil {
+            // restore consistent state
+            r.zoneRecord = oldZoneRecord   // !!! beware of memory leaks
+            addRecordObject(z, r.zoneRecord)
+
+            return err
+        }
+    }
+
+    // remove and zero record
+    r.Zone       = 0
+    r.Address    = ""
+    r.Names      = make([]string, 0)
+    r.Comment    = ""
+    r.Notes      = ""
+
+    r.managed    = false
 
     removeRecord(r)   // zeroes r.ID and r.id
 
     return nil
+}
+
+// -----------------------------------------------------------------------------
+
+func renderRecord(r *Record) {
+    // render strings
+    rendered := make([]string, 0, 1)                                            // at this moment we support only single-line records
+
+    line := r.Address
+
+    for _, name := range r.Names {
+        line += " " + name
+    }
+
+    if r.Comment != "" {
+        line += " #" + r.Comment
+    }
+
+    rendered = append(rendered, line)
+
+    // calculate checksum for the line
+    checksum := sha1.Sum([]byte(line))
+
+    // update recordObject
+    r.zoneRecord.lines = rendered
+    r.zoneRecord.checksum = hex.EncodeToString(checksum[:])
+
+    return
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanRecord(z *Zone, zoneRecord *recordObject, lines <-chan string) chan bool {
+    done := make(chan bool)
+
+    go func() {
+        defer close(done)
+
+        // create a hash for the checksum of the record
+        hash := sha1.New()
+        
+        // collect lines
+        collected := make([]string, 0)
+        for line := range lines {
+            // update hash
+            _, _ = io.WriteString(hash, line)
+
+            // update lines
+            collected = append(collected, line)
+        }
+
+        // calculate checksum for the lines
+        checksum := hash.Sum(nil)
+        newChecksum := hex.EncodeToString(checksum[:])
+
+        // update recordObject
+        zoneRecord.lines = collected
+
+        if zoneRecord.checksum == newChecksum {
+            done <- true
+            return
+        }
+
+        zoneRecord.checksum = newChecksum
+
+        // process lines                                                        // at this moment we support only single-line records
+
+        // split the line in an information-part and a comment-part
+        parts := strings.SplitN(zoneRecord.lines[0], "#", 2)
+
+        if parts[0] == "" {
+            // the line doesn't have an information-part
+            done <- true
+            return
+        }
+
+        comment := ""
+        if len(parts) > 1 {
+            comment = strings.TrimRight(parts[1], " \t")
+        }
+
+        // split the information-part
+        parts = strings.Fields(parts[0])
+
+        if len(parts) < 2 {
+            // the information-part doesn't have both an address and a name
+            log.Printf("[WARNING][terraform-provider-hosts/api/goScanRecord()] information-part doesn't have both an address and a name, skipping line: \n> %q", zoneRecord.lines[0])
+
+            done <- true
+            return
+        }
+
+        // create a new record if it doesn't exist, otherwise update it
+        rQuery := new(Record)
+        rQuery.Zone = z.ID
+        rQuery.Address = parts[0]
+        rQuery.Names = parts[1:]
+        r := lookupRecord(rQuery)
+        if r == nil {
+            // create record
+            rQuery.Comment = comment
+            // rQuery.Notes   = ""   // notes are not saved in file
+
+            rQuery.zoneRecord = zoneRecord
+        
+            _ = createRecord(rQuery)   // error cannot happen
+        } else {
+            // update record
+            rQuery.Comment = comment
+            rQuery.Notes   = r.Notes   // notes are not saved in file, need to pick up from old record
+
+            rQuery.zoneRecord = zoneRecord
+        
+            _ = updateRecord(r, rQuery)   // error cannot happen
+        }
+
+        done <- true
+        return
+    }()
+
+    return done
 }

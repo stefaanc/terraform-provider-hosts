@@ -24,14 +24,15 @@ import (
 
 type File struct {
     // readOnly
-    ID       int      // indexed   // read-write in a fQuery
+    ID        int      // indexed   // read-write in a fQuery
     // read-writeOnce
-    Path     string   // indexed   // read-write in a fQuery
+    Path      string   // indexed
     // read-writeMany
-    Notes    string
+    Notes     string
     // private
-    id       fileID
-    checksum string
+    id        fileID
+    hostsFile *fileObject
+    zones     []*zoneObject   // !!! beware of memory leaks
 }
 
 func LookupFile(fQuery *File) (f *File) {
@@ -81,6 +82,7 @@ func (f *File) Read() (file *File, err error) {
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/f.Read()] file not found")
     }
 
+    // read file
     fPrivate, err = readFile(fPrivate)
     if err != nil {
         return nil, err
@@ -168,27 +170,40 @@ func createFile(fValues *File) error {
     f.Path = fValues.Path
     f.Notes = fValues.Notes
 
+    f.hostsFile = fValues.hostsFile  // requested by goScanFile()
+    // f.zones                       // filled by goScanFile()
+
     addFile(f)   // adds f.ID and f.id
 
-    // read physical file, if it doesn't exist then create it
-    data, err := ioutil.ReadFile(f.Path)
-    if err != nil {
-        if os.IsNotExist(err) {
-            data = []byte(nil)
-            err = ioutil.WriteFile(f.Path, data, 0644)
-        }
+    if fValues.hostsFile == nil {   // if requested by CreateFile()
+        // add the file to the hosts
+        hostsFile := new(fileObject)
+        hostsFile.file = f      // !!! beware of memory leaks
+        f.hostsFile = hostsFile // !!! beware of memory leaks
 
+        addFileObject(hostsFile)
+
+        // read physical file, if it doesn't exist then create it
+        data, err := ioutil.ReadFile(f.Path)
         if err != nil {
+            if os.IsNotExist(err) {
+                data = []byte(nil)
+                err = ioutil.WriteFile(f.Path, data, 0644)
+            }
+        }
+        if err != nil {
+            // restore consistent state
+            f.hostsFile = nil   // !!! avoid memory leaks
+            removeFileObject(hostsFile)
             removeFile(f)
+
             return err
         }
-    }
-    checksum := sha1.Sum(data)
-    f.checksum = hex.EncodeToString(checksum[:])
 
-    // process data
-    done := goScanZones(f, bytes.NewReader(data))
-    _ = <-done
+        // process data
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
+        _ = <-done
+   }
 
     return nil
 }
@@ -203,131 +218,128 @@ func readFile(f *File) (file *File, err error) {
     checksum := sha1.Sum(data)
     newChecksum := hex.EncodeToString(checksum[:])
 
-    if f.checksum != newChecksum {
+    if f.hostsFile.checksum != newChecksum {
         // process data
         b := bytes.NewBuffer(data)
-        done := goScanZones(f, io.Reader(b))
+        done := goScanFile(f.hostsFile, io.Reader(b))
         _ = <-done
-
-        f.checksum = newChecksum
     }
+
+    // no computed fields
 
     return f, nil
 }
 
 func updateFile(f *File, fValues *File) error {
-    // collect data
-    b := bytes.NewBuffer([]byte(nil))
-    done := goRenderZones(f, io.Writer(b))
-    _ = <-done
-    data := b.Bytes()
+    notes   := f.Notes     // save so we can restore if needed
+    oldChecksum := f.hostsFile.checksum   // save to compare old with new
 
-    checksum := sha1.Sum(data)
-    newChecksum := hex.EncodeToString(checksum[:])
+    // update file
+    f.Notes    = fValues.Notes
 
-    if f.checksum !=  newChecksum {
-        // write physical file
-        err := ioutil.WriteFile(f.Path, data, 0644)
-        if err != nil {
-            return err
+    if fValues.hostsFile == nil {   // if requested by f.Update()
+        // render file to calculate new checksum
+        done := goRenderFile(f)   // updates data & checksum
+        _ = <-done
+        
+        if f.hostsFile.checksum != oldChecksum {
+            // update physical file
+            err := ioutil.WriteFile(f.Path, f.hostsFile.data, 0644)
+            if err != nil {
+                // restore consistent state
+                f.Notes = notes
+                f.hostsFile.data = []byte(nil)
+                f.hostsFile.checksum = oldChecksum
+
+                return err
+            }
         }
 
-        f.checksum = newChecksum
+        // don't keep rendered data in memory
+        f.hostsFile.data = []byte(nil)
+    } else {                         // requested by goScanFile()
+        // update zone & zoneObject
+        f.hostsFile = fValues.hostsFile   // !!! beware of memory leaks
+        f.hostsFile.file = f              // !!! beware of memory leaks
     }
 
     return nil
 }
 
 func deleteFile(f *File) error {
-    path := f.Path
+    // remove the zone from the file
+    if f.hostsFile != nil {   // if requested by f.Delete()
+        oldHostsFile := f.hostsFile   // save so we can restore if needed
+        f.hostsFile = nil            // !!! avoid memory leaks
+        removeFileObject(f.hostsFile)
+
+        if len(f.zones) == 0 {
+            // delete physical file
+            err := os.Remove(f.Path)
+            if err != nil {
+               // restore consistent state
+               f.hostsFile = oldHostsFile   // !!! beware of memory leaks
+               addFileObject(f.hostsFile)
+
+               return err
+            }
+        }
+    }
 
     // remove and zero file object
     f.Path = ""
     f.Notes = ""
 
-    f.checksum = ""
+    for _, zoneObject := range f.zones {   // !!! avoid memory leaks
+        zoneObject.zone = nil
+    }
+    f.zones = []*zoneObject(nil)
 
     removeFile(f)   // zeroes f.ID and f.id
-
-    if len(hosts.zoneIndex) == 0 {
-        // delete physical file
-        err := os.Remove(path)
-        if err != nil {
-            return err
-        }
-    }
 
     return nil
 }
 
 // -----------------------------------------------------------------------------
 
-var startMarker string = "##### Start Of Terraform Zone: "
-var endMarker string   = "##### End Of Terraform Zone: "
-
-// -----------------------------------------------------------------------------
-
-func goRenderZones(f *File, w io.Writer) chan bool {
+func goRenderFile(f *File) chan bool {
     done := make(chan bool)
 
     go func() {
         defer close(done)
 
-        // Remark:
-        // io.WriteString error cannot happen with the current implementation of updateFile
-        // this would need an io.Writer writing to file instead of to buffer
-        // we leave this for later development
-        // for now we throw a fatal error in case my assumptions are/become wrong
+        // render bytes
+        rendered := bytes.NewBuffer([]byte(nil))
+        w := io.Writer(rendered)
 
         // render lines for the default external zone
         zQuery := new(Zone)
         zQuery.File = f.ID
         zQuery.Name = "external"
         z := lookupZone(zQuery)
-
-        lines := goRenderLines(z)
-        for line := range lines {
-            _, err := io.WriteString(w, line + "\n")
-            if err != nil {   // cannot happen
-                log.Fatal(err)
-                // done <- true
-                // return
-            }
+        for _, line := range z.fileZone.lines {
+            // update lines
+            _, _ = io.WriteString(w, line + "\n")   // error cannot happen
         }
 
-        for _, zone := range hosts.zoneFiles[f.id] {
-            if zone.Name == "external" {
+        for _, zoneObject := range f.zones {
+            if zoneObject.zone.Name == "external" {
                 continue
             }
 
-            line := startMarker + zone.Name + " "
-            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
-            _, err := io.WriteString(w, line)
-            if err != nil {   // cannot happen
-                log.Fatal(err)
-                // done <- true
-                // return
-            }
-
-            lines := goRenderLines(zone)
-            for line := range lines {
-                _, err = io.WriteString(w, line + "\n")
-                if err != nil {   // cannot happen
-                    log.Fatal(err)
-                    // done <- true
-                    // return
-                }
-            }
-
-            line = endMarker + zone.Name + " "
-            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
-            _, err = io.WriteString(w, line)
-            if err != nil {   // cannot happen
-                log.Fatal(err)
-                // done <- true
-                // return
+            for _, line := range zoneObject.lines {
+                // update lines
+                _, _ = io.WriteString(w, line + "\n")   // error cannot happen
             }
         }
+
+        // calculate checksum for the lines
+        data := rendered.Bytes()
+        checksum := sha1.Sum(data)
+
+        // update zoneObject
+        f.hostsFile.data = data
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
 
         // finish goRenderZones()
         done <- true
@@ -339,38 +351,41 @@ func goRenderZones(f *File, w io.Writer) chan bool {
 
 // -----------------------------------------------------------------------------
 
-func goScanZones(f *File, r io.Reader) chan bool {
+func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                               // TODO cleanup old zones !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     done := make(chan bool)
 
     go func() {
         defer close(done)
 
-        // Remark:
-        // Scanner error cannot happen with the current implementation of createFile/readFile
-        // this would need an io.Reader reading from file instead of from buffer
-        // we leave this for later development
-        // for now we throw a fatal error in case my assumptions are/become wrong
+        f := hostsFile.file
 
-        // create the default external zone
-        zone := "external"
+        // keep the old slice of zoneObjects to cleanup old zones that aren't replaced
+        oldZones := f.zones
 
-        zValues := new(Zone)
-        zValues.File = f.ID
-        zValues.Name = zone
-        err := createZone(zValues)
-        if err != nil {   // cannot happen
-            log.Fatal(err)
-            //done <- true
-            //return
-        }
-        z := lookupZone(zValues)
+        // update file with new slice of zoneObjects
+        f.zones = make([]*zoneObject, 0)
 
-        // create a channel to the external zone
-        lines := make(chan string)
-        done2 := goScanLines(z, lines)
+        defer func() {
+            // cleanup zones that aren't replaced
+            for _, fileZone := range oldZones {
+                z := fileZone.zone
+                if z.fileZone == fileZone {   // if zone was deleted from the read file, fileZone was not replaced
+                    // delete zone object
+                    z.fileZone = nil   // !!! avoid memory leaks
+                    _ = deleteZone(z)   // error cannot happen
+                }
+            }
+        }()
+
+        // create 'external' zoneObject
+        fileZone := new(zoneObject)
+        addZoneObject(f, fileZone)
+
+        lines2 := make(chan string)
+        done2  := goScanZone(f, fileZone, lines2)
 
         // save this channel for later use
-        linesExternal := lines
+        linesExternal := lines2
         doneExternal := done2
 
         // start scanning
@@ -378,54 +393,52 @@ func goScanZones(f *File, r io.Reader) chan bool {
         for scanner.Scan() {
             line := scanner.Text()
 
-            // scan line
-            if lines == linesExternal {
-                if strings.HasPrefix(line, startMarker) {
-                    // line is a marker for the start of new zone
-                    // create new zone
-                    zone = strings.Trim(line[len(startMarker):], " #")
+            // create new zoneObject when startZoneMarker
+            // complete old zoneObject if not external
+            if strings.HasPrefix(line, startZoneMarker) {
+                // line is a marker for the start of new zone
+                if lines2 != linesExternal {
+                    // unexpected startZoneMarker, probably an endZoneMarker missing => silently ignore
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] unexpected start-of-zone marker - missing end-of-zone marker: \n> %q", line)
 
-                    zValues = new(Zone)
-                    zValues.File = f.ID
-                    zValues.Name = zone
-                    err = createZone(zValues)
-                    if err != nil {   // cannot happen
-                        close(lines)
-                        log.Fatal(err)
-                        //done <- true
-                        //return
-                    }
-                    z := lookupZone(zValues)
-
-                    // create a channel to the new zone
-                    lines = make(chan string)
-                    done2 = goScanLines(z, lines)
-
-                    continue
-                } 
-            } else {
-                if strings.HasPrefix(line, endMarker + zone) {
-                    // line is a marker for the end of current zone
-                    // wait for goScanLines() of the current zone to finish
-                    close(lines)
+                    // wait for goScanZone() of the current zone to finish
+                    close(lines2)
                     _ = <-done2
-
-                    // back to external zone
-                    zone = "external"
-                    lines = linesExternal
-                    done2 = doneExternal
-
-                    continue
                 }
+
+                // create new zone
+                fileZone := new(zoneObject)
+                addZoneObject(f, fileZone)
+
+                lines2 = make(chan string)
+                done2 = goScanZone(f, fileZone, lines2)
             }
 
-            // line is not a marker => send to scanLines(z) it
-            lines <- line
+            // complete old zoneObject if not external
+            if strings.HasPrefix(line, endZoneMarker) {
+                // line is a marker for the end of current zone
+                if lines2 == linesExternal {
+                    // unexpected endZoneMarker, probably a startZoneMarker missing => silently ignore
+                    // all records from the zone with missing startZoneMarker will be in the external zone
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] unexpected end-of-zone marker, skipping line: \n> %q", line)
+                    continue
+                }
+
+                // wait for goScanZone() of the current zone to finish
+                close(lines2)
+                _ = <-done2
+
+                // back to external zone
+                lines2 = linesExternal
+                done2 = doneExternal
+            }
+
+            lines2 <- line
         }
-        if err := scanner.Err(); err != nil {   // cannot happen
+        if err := scanner.Err(); err != nil {   // cannot happen at the moment - crash if code is modified
             // scanner error
-            if lines != linesExternal {
-                close(lines)
+            if lines2 != linesExternal {
+                close(lines2)
             }
             close(linesExternal)
             log.Fatal(err)
@@ -433,14 +446,16 @@ func goScanZones(f *File, r io.Reader) chan bool {
             //return
         }
 
-        if lines != linesExternal {
-            // missing end-marker for current zone => silently ignore
-            // wait for goScanLines(z) of the current zone to finish
-            close(lines)
+        if lines2 != linesExternal {
+            // endZoneMarker missing => silently ignore
+            log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] missing end-of-zone marker")
+
+            // wait for goScanZone() of the current zone to finish
+            close(lines2)
             _ = <-done2
         }
 
-        // wait for goScanLines(z) of the external zone to finish
+        // wait for goScanLines() of the external zone to finish
         close(linesExternal)
         _ = <-doneExternal
 
@@ -450,4 +465,38 @@ func goScanZones(f *File, r io.Reader) chan bool {
     }()
 
     return done
+}
+
+// -----------------------------------------------------------------------------
+
+type zoneObject struct {
+    lines    []string
+    checksum string
+    zone  *Zone   // !!! beware of memory leaks
+}
+
+func addZoneObject(f *File, z *zoneObject) {
+    f.zones = append(f.zones, z)
+    return
+}
+
+func removeZoneObject(f *File, z *zoneObject) {
+    f.zones = deleteFromSliceOfZoneObjects(f.zones, z)
+    return
+}
+
+func deleteFromSliceOfZoneObjects(zs []*zoneObject, z *zoneObject) []*zoneObject {
+    if len(zs) == 0 {
+        return []*zoneObject(nil)   // always return a copy
+    }
+
+    newZoneObjects := make([]*zoneObject, 0, len(zs) - 1)
+    for _, zoneObject := range zs {
+        if z == zoneObject {
+            continue
+        }
+        newZoneObjects = append(newZoneObjects, zoneObject)
+    }
+
+    return newZoneObjects
 }

@@ -11,6 +11,8 @@ import (
     "errors"
     "encoding/hex"
     "io"
+    "log"
+    "strings"
 )
 
 // -----------------------------------------------------------------------------
@@ -19,14 +21,15 @@ type Zone struct {
     // readOnly
     ID       int      // indexed   // read-write in a zQuery
     // read-writeOnce
-    File     int      // indexed   // read-write in a zQuery
-    Name     string   // indexed   // read-write in a zQuery
+    File     int      // indexed
+    Name     string   // indexed
     // read-writeMany
     Notes    string
     // private
     id       zoneID
-    lines    []string
-    checksum string
+    managed  bool
+    fileZone *zoneObject       // !!! beware of memory leaks
+    records  []*recordObject   // !!! beware of memory leaks
 }
 
 func LookupZone(zQuery *Zone) (z *Zone) {
@@ -57,15 +60,25 @@ func CreateZone(zValues *Zone) error {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] illegal value \"external\" specified for 'zValues.Name'")
     }
 
+    // check file
+    fQuery := new(File)
+    fQuery.ID = zValues.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] file 'zValues.File' not found")
+    }
+
     // lookup all indexed fields except ID
     zQuery := new(Zone)
     zQuery.File = zValues.File
     zQuery.Name = zValues.Name
-
     zPrivate := lookupZone(zQuery)
     if zPrivate != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] another zone with similar properties already exists")
     }
+
+    // take ownership
+    zValues.managed = true
 
     return createZone(zValues)   // zValues.ID will be ignored
 }
@@ -84,6 +97,15 @@ func (z *Zone) Read() (zone *Zone, err error) {
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] zone not found")
     }
 
+    // check file
+    fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil {
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
+    }
+
+    // read zone
     zPrivate, err = readZone(zPrivate)
     if err != nil {
         return nil, err
@@ -114,6 +136,14 @@ func (z *Zone) Update(zValues *Zone) error {
         return errors.New("[ERROR][terraform-provider-hosts/api/z.Update(zValues)] zone not found")
     }
 
+    // check file
+    fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
+    }
+
     return updateZone(zPrivate, zValues)   // zValues.ID, zValues.Name and zValues.File will be ignored
 }
 
@@ -129,6 +159,17 @@ func (z *Zone) Delete() error {
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/z.Delete()] zone not found")
+    }
+    if zPrivate.Name == "external" {
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Delete()] cannot delete zone \"external\"")
+    }
+
+    // check file
+    fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil {
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
     }
 
     return deleteZone(zPrivate)
@@ -169,30 +210,136 @@ func (z *Zone) Delete() error {
 func createZone(zValues *Zone) error {
     // create zone
     z := new(Zone)
-    z.File  = zValues.File
-    z.Name  = zValues.Name
-    z.Notes = zValues.Notes
+    z.File     = zValues.File
+    z.Name     = zValues.Name
+    z.Notes    = zValues.Notes
 
-//    z.lines = make([]string, 0)                                               // TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    z.managed  = zValues.managed   // requested by CreateZone()
+    z.fileZone = zValues.fileZone  // requested by goScanZone()
+    // z.records                   // filled by goScanZone()
 
     addZone(z)   // adds z.ID and z.id
+
+    if zValues.fileZone == nil {   // if requested by CreateZone()
+        // add the zone to the file
+        fileZone := new(zoneObject)
+        fileZone.zone = z       // !!! beware of memory leaks
+        z.fileZone = fileZone   // !!! beware of memory leaks
+
+        fQuery := new(File)
+        fQuery.ID = z.File
+        f := lookupFile(fQuery)
+        addZoneObject(f, fileZone)
+    
+        // render zone
+        renderZone(z)   // updates lines & checksum
+
+        // update file
+        err := updateFile(f, f)
+        if err != nil {
+            // restore consistent state
+            z.fileZone = nil   // !!! avoid memory leaks
+            removeZoneObject(f, fileZone)
+            removeZone(z)
+
+            return err
+        }
+    }
 
     return nil
 }
 
 func readZone(z *Zone) (zone *Zone, err error) {
-    return z, nil
+    // read file
+    fQuery := new(File)
+    fQuery.ID = z.File
+    f := lookupFile(fQuery)
+    _, err = readFile(f)
+    if err != nil {
+        return nil, err
+    }
+
+    // don't return z, instead lookup zone
+    // - to cover case where zone was deleted by external programs
+    zQuery := new(Zone)
+    zQuery.ID = z.ID
+    zone = lookupZone(zQuery)
+
+    // no computed fields
+
+    return zone, nil
 }
 
 func updateZone(z *Zone, zValues *Zone) error {
+    notes   := z.Notes     // save so we can restore if needed
+    oldChecksum := z.fileZone.checksum   // save to compare old with new
+
+    // update zone
+    z.Notes    = zValues.Notes
+
+    if zValues.fileZone == nil {   // if requested by z.Update()
+        // render zone to calculate new checksum
+        renderZone(z)   // updates lines & checksum
+        
+        if z.fileZone.checksum != oldChecksum {
+            // update file
+            fQuery := new(File)
+            fQuery.ID = z.File
+            f := lookupFile(fQuery)
+            err := updateFile(f, f)
+            if err != nil {
+                // restore consistent state
+                z.Notes   = notes
+                renderZone(z)
+
+                return err
+            }
+        }
+    } else {                         // requested by goScanZone()
+        // update zone & zoneObject
+        z.fileZone = zValues.fileZone   // !!! beware of memory leaks
+        z.fileZone.zone = z             // !!! beware of memory leaks
+    }
+
     return nil
 }
 
 func deleteZone(z *Zone) error {
-    // remove and zero file object
-    z.File    = 0
-    z.Name    = ""
-    z.Notes   = ""
+    // remove the zone from the file
+    if z.fileZone != nil {   // if requested by z.Delete()
+        fQuery := new(File)
+        fQuery.ID = z.File
+        f := lookupFile(fQuery)
+
+        oldFileZone := z.fileZone   // save so we can restore if needed
+        z.fileZone = nil            // !!! avoid memory leaks
+        removeZoneObject(f, z.fileZone)
+
+        var err error
+        if len(f.zones) > 0 {
+            err = updateFile(f, f)
+        } else {
+            err = deleteFile(f)
+        }
+        if err != nil {
+            // restore consistent state
+            z.fileZone = oldFileZone   // !!! beware of memory leaks
+            addZoneObject(f, z.fileZone)
+
+            return err
+        }
+    }
+
+    // remove and zero zone object
+    z.File     = 0
+    z.Name     = ""
+    z.Notes    = ""
+
+    z.managed  = false
+    for _, recordObject := range z.records {   // !!! avoid memory leaks
+        recordObject.record = nil
+    }
+    z.records  = []*recordObject(nil)
 
     removeZone(z)   // zeroes z.ID and z.id
 
@@ -201,23 +348,63 @@ func deleteZone(z *Zone) error {
 
 // -----------------------------------------------------------------------------
 
-func goRenderLines(z *Zone) chan string {
-    lines := make(chan string)
+var startZoneMarker string = "##### Start Of Terraform Zone: "
+var endZoneMarker string   = "##### End Of Terraform Zone: "
 
-    go func() {
-        defer close(lines)
+// -----------------------------------------------------------------------------
 
-        for _, line := range z.lines {
-            lines <- line
-        }
-    }()
+func renderZone(z *Zone) {
+    // create a hash for the checksum of the zone
+    hash := sha1.New()
 
-    return lines
+    // render strings
+    rendered := make([]string, 0)
+
+    // render marker
+    line := startZoneMarker + z.Name + " #####"
+    padding := 80 - len(line)
+    if padding < 0 { padding = 0 }
+    line += strings.Repeat("#", padding)
+
+    // update hash
+    _, _ = io.WriteString(hash, line)   // error cannot happen
+
+    // update lines
+    rendered = append(rendered, line)
+
+    for _, recordObject := range z.records {
+        // update hash
+        _, _ = io.WriteString(hash, recordObject.lines[0])   // error cannot happen   // at this moment we support only single-line records
+
+        // update lines
+        rendered = append(rendered, recordObject.lines[0])                      // at this moment we support only single-line records
+    }
+
+    // render marker
+    line = endZoneMarker + z.Name + " #####"
+    padding = 80 - len(line)
+    if padding < 0 { padding = 0 }
+    line += strings.Repeat("#", padding)
+
+    // update hash
+    _, _ = io.WriteString(hash, line)   // error cannot happen
+
+    // update lines
+    rendered = append(rendered, line)
+
+    // calculate checksum for the lines
+    checksum := hash.Sum(nil)
+
+    // update zoneObject
+    z.fileZone.lines = rendered
+    z.fileZone.checksum = hex.EncodeToString(checksum[:])
+
+    return
 }
 
 // -----------------------------------------------------------------------------
 
-func goScanLines(z *Zone, lines <-chan string) chan bool {
+func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
     done := make(chan bool)
 
     go func() {
@@ -225,22 +412,151 @@ func goScanLines(z *Zone, lines <-chan string) chan bool {
 
         // create a hash for the checksum of the zone
         hash := sha1.New()
+
+        // scan first line, possibly a start-zone-marker, get name of first zone
+        line := <-lines
+        var zone string
+        if strings.HasPrefix(line, startZoneMarker) {
+            zone = strings.Trim(line[len(startZoneMarker):], " #")
+        } else {
+            zone = "external"
+        }
+
+        // create/update zone
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = zone
+        z := lookupZone(zQuery)
+        if z == nil {
+            // create zone
+            // zQuery.Notes   = ""   // notes are not saved in file
+
+            zQuery.fileZone = fileZone
+
+            _ = createZone(zQuery)   // error cannot happen
+            z = lookupZone(zQuery)
+        } else {
+            // update zone
+            zQuery.Notes   = z.Notes   // notes are not saved in file, need to pick up from old zone
+
+            zQuery.fileZone = fileZone
         
+            _ = updateZone(z, zQuery)   // error cannot happen
+        }
+
+        // keep the old slice of recordObjects to cleanup old records that aren't replaced
+        oldRecords := z.records
+
+        // update zone with new slice of recordObjects
+        z.records = make([]*recordObject, 0)
+
+        defer func() {
+            // cleanup records that aren't replaced
+            for _, zoneRecord := range oldRecords {
+                r := zoneRecord.record
+                if r != nil {   // if zoneRecord is a record, not a comment/blank-line
+                    if r.zoneRecord == zoneRecord {   // if record was deleted from the read zone, zoneRecord was not replaced
+                        // delete record object
+                        r.zoneRecord = nil   // !!! avoid memory leaks
+                        _ = deleteRecord(r)   // error cannot happen
+                    }
+                }
+            }
+        }()
+
+        // update hash
+        _, _ = io.WriteString(hash, line)
+
+        // update zone
+        zoneRecord := new(recordObject)
+        zoneRecord.lines[0] = line                                              // at this moment we support only single-line records
+        addRecordObject(z, zoneRecord)
+
+        // collect lines
         for line := range lines {
             // update hash
             _, _ = io.WriteString(hash, line)
 
             // update zone
-            z.lines = append(z.lines, line)
+            zoneRecord := new(recordObject)
+            zoneRecord.lines[0] = line                                          // at this moment we support only single-line records
+            addRecordObject(z, zoneRecord)
+
+            if strings.HasPrefix(line, endZoneMarker) {
+                // end of zone
+                if !strings.HasPrefix(line, endZoneMarker + zone) {
+                    // unexpected endZoneMarker, probably an endZone- and startZone-Marker missing => silently ignore
+                    // all records from the zone with missing startZoneMarker will be in the current zone
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanZone()] unexpected end-of-zone marker - missing end-of-zone and start-of-zone marker: \n> %q", line)
+                }
+                break
+            }
         }
 
-        // save checksum of the zone
+        // calculate checksum for the lines
         checksum := hash.Sum(nil)
-        z.checksum = hex.EncodeToString(checksum[:])
+        newChecksum := hex.EncodeToString(checksum[:])
+
+        if zoneRecord.checksum == newChecksum {
+            done <- true
+            return
+        }
+
+        zoneRecord.checksum = newChecksum
+
+        // process lines
+        for _, zoneRecord := range z.records {
+            lines2 := make(chan string)
+            done2 := goScanRecord(z, zoneRecord, lines2)
+
+            lines2 <- zoneRecord.lines[0]                                        // at this moment we support only single-line records
+
+            close(lines2)
+            _ = <-done2
+        }
 
         done <- true
         return
     }()
 
     return done
+}
+
+// -----------------------------------------------------------------------------
+
+type recordObject struct {
+    // remark that a record can be split over multiple lines
+    // - f.i. a comment-line before to information-line
+    // - f.i. names split over several lines
+    lines    []string
+    checksum string
+    // remark that a recordObject may not have an associated record
+    // - f.i. a comment-line in the external zone of the hosts-file
+    record   *Record   // !!! beware of memory leaks
+}
+
+func addRecordObject(z *Zone, r *recordObject) {
+    z.records = append(z.records, r)
+    return
+}
+
+func removeRecordObject(z *Zone, r *recordObject) {
+    z.records = deleteFromSliceOfRecordObjects(z.records, r)
+    return
+}
+
+func deleteFromSliceOfRecordObjects(rs []*recordObject, r *recordObject) []*recordObject {
+    if len(rs) == 0 {
+        return []*recordObject(nil)   // always return a copy
+    }
+
+    newRecordObjects := make([]*recordObject, 0, len(rs) - 1)
+    for _, recordObject := range rs {
+        if r == recordObject {
+            continue
+        }
+        newRecordObjects = append(newRecordObjects, recordObject)
+    }
+
+    return newRecordObjects
 }

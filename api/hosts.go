@@ -19,6 +19,8 @@ func Init() {
 // -----------------------------------------------------------------------------
 
 type anchor struct {
+    files []*fileObject   // !!! beware of memory leaks
+
     newFileID func () fileID
     fileIndex map[fileID]*File
     filePaths map[string][]*File
@@ -151,14 +153,13 @@ func deleteFromSliceOfFiles(fs []*File, f *File) []*File {
         return []*File(nil)   // always return a copy
     }
 
-    newFiles := make([]*File, len(fs) - 1)
-    decr := 0
-    for i, file := range fs {
-        if file.id == f.id {
-            decr = 1
-        } else {
-            newFiles[i-decr] = fs[i]
+    newFiles := make([]*File, 0, len(fs) - 1)
+    for _, file := range fs {
+        if file == f {
+            continue
         }
+
+        newFiles = append(newFiles, file)
     }
 
     return newFiles
@@ -279,14 +280,12 @@ func deleteFromSliceOfZones(zs []*Zone, z *Zone) []*Zone {
         return []*Zone(nil)   // always return a copy
     }
 
-    newZones := make([]*Zone, len(zs) - 1)
-    decr := 0
-    for i, zone := range zs {
-        if zone.id == z.id {
-            decr = 1
-        } else {
-            newZones[i-decr] = zs[i]
+    newZones := make([]*Zone, 0, len(zs) - 1)
+    for _, zone := range zs {
+        if zone == z {
+            continue
         }
+        newZones = append(newZones, zone)
     }
 
     return newZones
@@ -509,17 +508,48 @@ func deleteFromSliceOfRecords(rs []*Record, r *Record) []*Record {
         return []*Record(nil)   // always return a copy
     }
 
-    newRecords := make([]*Record, len(rs) - 1)
-    decr := 0
-    for i, record := range rs {
-        if record.id == r.id {
-            decr = 1
-        } else {
-            newRecords[i-decr] = rs[i]
+    newRecords := make([]*Record, 0, len(rs) - 1)
+    for _, record := range rs {
+        if record == r {
+            continue
         }
+
+        newRecords = append(newRecords, record)
     }
 
     return newRecords
 }
 
 // -----------------------------------------------------------------------------
+
+type fileObject struct {
+    data     []byte   // filled by goRenderFile(), cleared by goScanFile()
+    checksum string
+    file     *File    // !!! beware of memory leaks
+}
+
+func addFileObject(f *fileObject) {
+    hosts.files = append(hosts.files, f)
+    return
+}
+
+func removeFileObject(f *fileObject) {
+    hosts.files = deleteFromSliceOfFileObjects(hosts.files, f)
+    return
+}
+
+func deleteFromSliceOfFileObjects(fs []*fileObject, f *fileObject) []*fileObject {
+    if len(fs) == 0 {
+        return []*fileObject(nil)   // always return a copy
+    }
+
+    newFileObjects := make([]*fileObject, 0, len(fs) - 1)
+    for _, fileObject := range fs {
+        if f == fileObject {
+            continue
+        }
+        newFileObjects = append(newFileObjects, fileObject)
+    }
+
+    return newFileObjects
+}

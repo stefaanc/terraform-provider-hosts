@@ -28,7 +28,7 @@ GO_BUILD_FILES   := $(if $(IS_WINDOWS),$(shell dir /S /B *.go | findstr /v /c:"_
 .PHONY: build      # build the module
 .PHONY: release    # release the module
 
-.PHONY: default
+.PHONY: default    # change to the actions you want to run by default
 default: test log
 
 tidy:
