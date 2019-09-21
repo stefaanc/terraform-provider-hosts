@@ -13,6 +13,9 @@ import (
 // -----------------------------------------------------------------------------
 
 func resetHostsTestEnv() {
+    for _, fileObject := range hosts.files {   // !!! avoid memory leaks
+        fileObject.file = nil
+    }
     hosts = (*anchor)(nil)
     Init()
 }
@@ -2919,6 +2922,220 @@ func Test_deleteFromSliceOfRecords(t *testing.T) {
         for _, element := range s2 {
             if element.id == r3.id {
                 t.Errorf("[ for s2[element].id ] expected: %s, actual: %#v", "<not found>", element.id)
+            }
+        }
+    })
+}
+
+//------------------------------------------------------------------------------
+
+func Test_addFileObject(t *testing.T) {
+    var test string
+
+    test = "added"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        // --------------------
+
+        f := new(fileObject)
+        addFileObject(f)
+
+        // --------------------
+
+        length := len(hosts.files)
+        if length != 1 {
+            t.Errorf("[ len(hosts.files) ] expected: %#v, actual: %#v", 1, length)
+        }
+    })
+}
+
+func Test_removeFileObject(t *testing.T) {
+    var test string
+
+    test = "empty"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        f := new(fileObject)
+
+        removeFileObject(f)
+
+        // --------------------
+
+        // nothing to test - making sure this doesn't throw a Fatal error
+
+    })
+
+    test = "removed"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        f := new(fileObject)
+        addFileObject(f)
+
+        // --------------------
+
+        removeFileObject(f)
+
+        // --------------------
+
+        length := len(hosts.files)
+        if length != 0 {
+            t.Errorf("[ len(hosts.files) ] expected: %#v, actual: %#v", 0, length)
+        }
+    })
+}
+
+func Test_deleteFromSliceOfFileObjects(t *testing.T) {
+    var test string
+
+    test = "empty"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        s1 := make([]*fileObject, 0)
+
+        f := new(fileObject)
+
+        // --------------------
+
+        _ = deleteFromSliceOfFileObjects(s1, f)
+
+        // --------------------
+
+        // nothing to test - making sure this doesn't throw a Fatal error
+
+    })
+
+    test = "1-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        s1 := make([]*fileObject, 0)
+
+        f := new(fileObject)
+        s1 = append(s1, f)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfFileObjects(s1, f)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+    })
+
+    test = "more-elements/first-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        s1 := make([]*fileObject, 0)
+
+        f1 := new(fileObject)
+        s1 = append(s1, f1)
+
+        f2 := new(fileObject)
+        s1 = append(s1, f2)
+
+        f3 := new(fileObject)
+        s1 = append(s1, f3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfFileObjects(s1, f1)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == f1 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
+            }
+        }
+    })
+
+    test = "more-elements/middle-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        s1 := make([]*fileObject, 0)
+
+        f1 := new(fileObject)
+        s1 = append(s1, f1)
+
+        f2 := new(fileObject)
+        s1 = append(s1, f2)
+
+        f3 := new(fileObject)
+        s1 = append(s1, f3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfFileObjects(s1, f2)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == f2 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
+            }
+        }
+    })
+    
+    test = "more-elements/last-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetHostsTestEnv()
+
+        s1 := make([]*fileObject, 0)
+
+        f1 := new(fileObject)
+        s1 = append(s1, f1)
+
+        f2 := new(fileObject)
+        s1 = append(s1, f2)
+
+        f3 := new(fileObject)
+        s1 = append(s1, f3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfFileObjects(s1, f3)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == f3 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
             }
         }
     })
