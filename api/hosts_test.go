@@ -13,10 +13,12 @@ import (
 // -----------------------------------------------------------------------------
 
 func resetHostsTestEnv() {
-    for _, fileObject := range hosts.files {   // !!! avoid memory leaks
-        fileObject.file = nil
+    if hosts != nil {
+        for _, hostsFile := range hosts.files {   // !!! avoid memory leaks
+            hostsFile.file = nil
+        }
+        hosts = (*anchor)(nil)
     }
-    hosts = (*anchor)(nil)
     Init()
 }
 
@@ -28,7 +30,12 @@ func Test_Init(t *testing.T) {
     test = "1st-init"
     t.Run(test, func(t *testing.T) {
 
-        hosts = (*anchor)(nil)
+        if hosts != nil {
+            for _, hostsFile := range hosts.files {   // !!! avoid memory leaks
+                hostsFile.file = nil
+            }
+            hosts = (*anchor)(nil)
+        }
 
         // --------------------
 
@@ -126,7 +133,12 @@ func Test_Init(t *testing.T) {
     test = "2nd-init"
     t.Run(test, func(t *testing.T) {
 
-        hosts = (*anchor)(nil)
+        if hosts != nil {
+            for _, hostsFile := range hosts.files {   // !!! avoid memory leaks
+                hostsFile.file = nil
+            }
+            hosts = (*anchor)(nil)
+        }
         Init()
 
         f := new(File)

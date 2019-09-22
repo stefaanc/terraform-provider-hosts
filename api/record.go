@@ -236,7 +236,6 @@ func createRecord(rValues *Record) error {
     r.Notes      = rValues.Notes
 
     r.managed    = rValues.managed      // requested by CreateRecord()
-    r.zoneRecord = rValues.zoneRecord   // requested by goScanRecord()
 
     addRecord(r)   // updates r.ID and r.id
 
@@ -264,6 +263,10 @@ func createRecord(rValues *Record) error {
 
             return err
         }
+    } else {                         // requested by goScanRecord()
+        // update record & recordObject
+        r.zoneRecord = rValues.zoneRecord   // !!! beware of memory leaks
+        r.zoneRecord.record = r             // !!! beware of memory leaks
     }
 
     return nil

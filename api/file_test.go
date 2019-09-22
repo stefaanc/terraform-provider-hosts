@@ -10,16 +10,22 @@ import (
     "bytes"
     "crypto/sha1"
     "encoding/hex"
-    "io"
     "io/ioutil"
+    "log"
     "os"
+    "strings"
     "testing"
 )
 
 // -----------------------------------------------------------------------------
 
 func resetFileTestEnv() {
-    hosts = (*anchor)(nil)
+    if hosts != nil {
+        for _, hostsFile := range hosts.files {   // !!! avoid memory leaks
+            hostsFile.file = nil
+        }
+        hosts = (*anchor)(nil)
+    }
     Init()
 }
 
@@ -36,6 +42,7 @@ func Test_LookupFile(t *testing.T) {
         f := new(File)
         f.Path = "f"
         f.Notes = "..."
+        // f.checksum = "###"
         addFile(f)
 
         // --------------------
@@ -48,8 +55,14 @@ func Test_LookupFile(t *testing.T) {
         // --------------------
 
         if file == nil {
-            t.Errorf("[ LookupFile(fQuery) ] expected: %#v, actual: %#v", f, file)
+            t.Errorf("[ LookupFile(fQuery) ] expected: not %#v, actual: %#v", nil, file)
         } else {
+
+            // --------------------
+
+            if file.id != 0 {
+               t.Errorf("[ LookupFile(fQuery).id ] expected: %#v, actual: %#v", 0, file.id)
+            }
 
             // --------------------
 
@@ -71,16 +84,9 @@ func Test_LookupFile(t *testing.T) {
 
             // --------------------
 
-            if file.id != 0 {
-               t.Errorf("[ LookupFile(fQuery).id ] expected: %#v, actual: %#v", 0, file.id)
-            }
-
-            // --------------------
-
-            if file.checksum != "" {
-                t.Errorf("[ LookupFile(fQuery).checksum ] expected: %#v, actual: %#v", "", file.checksum)
-            }
-
+            // if file.checksum != "" {
+            //     t.Errorf("[ LookupFile(fQuery).checksum ] expected: %#v, actual: %#v", "", file.checksum)
+            // }
         }
     })
 
@@ -121,7 +127,9 @@ func Test_CreateFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ CreateFile(fValues) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ CreateFile(fValues).err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "missing 'fValues.Path'") {
+            t.Errorf("[ CreateFile(fValues).err.Error() ] expected: contains %#v, actual: %#v", "missing 'fValues.Path'", err.Error())
         }
     })
 
@@ -141,7 +149,9 @@ func Test_CreateFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ CreateFile(f) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ CreateFile(f).err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "already exists") {
+            t.Errorf("[ CreateFile(f).err.Error() ] expected: contains %#v, actual: %#v", "already exists", err.Error())
         }
     })
 
@@ -160,7 +170,7 @@ func Test_CreateFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ createFile(fValues) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ createFile(fValues).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
@@ -189,7 +199,7 @@ func Test_CreateFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ CreateFile(fValues) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ CreateFile(fValues).err ] expected: %s, actual: %#v", "<error>", err)
         }
 
         // --------------------
@@ -217,14 +227,14 @@ func Test_createFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ createFile(fValues) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ createFile(fValues).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
         f := lookupFile(fValues)
         if f == nil {
-            t.Errorf("[ lookupFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ lookupFile(fValues) ] expected: not %#v, actual: %#v", nil, f)
         } else {
 
             // --------------------
@@ -253,17 +263,42 @@ func Test_createFile(t *testing.T) {
 
             // --------------------
 
-            checksum := sha1.Sum(nil)
-            expected := hex.EncodeToString(checksum[:])
-            if f.checksum != expected {
-                t.Errorf("[ lookupFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+            if f.hostsFile == nil {
+                t.Errorf("[ lookupFile(fValues).hostsFile ] expected: not %#v, actual: %#v", nil, f.hostsFile)
+            } else {
+
+                // --------------------
+
+                if f.hostsFile.file != f {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.file ] expected: %#v, actual: %#v", nil, f.hostsFile.file)
+                }
+
+                // --------------------
+
+                if f.hostsFile.data != nil {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum(nil)
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.checksum ] expected: %#v, actual: %#v", expected, f.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if len(f.zones) != 1 {
+                t.Errorf("[ lookupFile(fValues).zones ] expected: %#v, actual: %#v", 1, len(f.zones))
             }
 
             // --------------------
 
             data, err := ioutil.ReadFile(fValues.Path)
             if err != nil {
-                t.Errorf("[ ioutil.ReadFile(fValues.Path) ] expected: %s, actual: %#v", "not <nil>", err)
+                t.Errorf("[ ioutil.ReadFile(fValues.Path).err ] expected: %#v, actual: %#v", nil, err)
             } else if len(data) != 0 {
                 t.Errorf("[ len(ioutil.ReadFile(fValues.Path)) ] expected: %#v, actual: %#v", 0, len(data))
             }
@@ -296,20 +331,20 @@ func Test_createFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ createFile(fValues) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ createFile(fValues).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
         f := lookupFile(fValues)
         if f == nil {
-            t.Errorf("[ lookupFile(fValues) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ lookupFile(fValues) ] expected: not %#v, actual: %#v", nil, f)
         } else {
 
             // --------------------
 
             if f.id == 0 {
-                t.Errorf("[ lookupFile(fValues).id ] expected: %#v, actual: %#v", 0, f.id)
+                t.Errorf("[ lookupFile(fValues).id ] expected: not %#v, actual: %#v", 0, f.id)
             }
 
             // --------------------
@@ -332,10 +367,35 @@ func Test_createFile(t *testing.T) {
 
             // --------------------
 
-            checksum := sha1.Sum(data)
-            expected := hex.EncodeToString(checksum[:])
-            if f.checksum != expected {
-                t.Errorf("[ lookupFile(fValues).checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+            if f.hostsFile == nil {
+                t.Errorf("[ lookupFile(fValues).hostsFile ] expected: %#v, actual: %#v", nil, f.hostsFile)
+            } else {
+
+                // --------------------
+
+                if f.hostsFile.file != f {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.file ] expected: %#v, actual: %#v", nil, f.hostsFile.file)
+                }
+
+                // --------------------
+
+                if f.hostsFile.data != nil {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum(data)
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.checksum ] expected: %#v, actual: %#v", expected, f.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if len(f.zones) != 1 {
+                t.Errorf("[ lookupFile(fValues).zones ] expected: %#v, actual: %#v", 1, len(f.zones))
             }
         }
 
@@ -365,7 +425,7 @@ func Test_createFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ createFile(fValues) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ createFile(fValues).err ] expected: %s, actual: %#v", "<error>", err)
         }
 
         // --------------------
@@ -381,6 +441,8 @@ func Test_createFile(t *testing.T) {
     })
 }
 
+// -----------------------------------------------------------------------------
+
 func Test_fRead(t *testing.T) {
     var test string
 
@@ -389,31 +451,20 @@ func Test_fRead(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Read() ] cannot write test-file")
-        }
-
         f := new(File)
-        f.Path = path
-        addFile(f)
         f.ID = 0
 
         // --------------------
 
-        _, err = f.Read()
+        _, err := f.Read()
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Read().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "missing 'f.ID'") {
+            t.Errorf("[ f.Read().err.Error() ] expected: contains %#v, actual: %#v", "missing 'f.ID'", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "not-found"
@@ -421,30 +472,20 @@ func Test_fRead(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Read() ] cannot write test-file")
-        }
-
         f := new(File)
-        f.Path = path
-        f.ID = 1
+        f.ID = 42
 
         // --------------------
 
-        _, err = f.Read()
+        _, err := f.Read()
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Read().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "not found") {
+            t.Errorf("[ f.Read().err.Error() ] expected: contains %#v, actual: %#v", "not found", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "read"
@@ -461,20 +502,72 @@ func Test_fRead(t *testing.T) {
 
         f := new(File)
         f.Path = path
+        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+        
+        f.zones = make([]*zoneObject, 0)
 
         // --------------------
 
-        _, err = f.Read()
+        file, err := f.Read()
 
         // --------------------
 
         if err != nil {
-            t.Errorf("[ f.Read() ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ f.Read().err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
+        if file == nil {
+            t.Errorf("[ f.Read().file ] expected: not %#v, actual: %#v", nil, f)
+        } else {
+
+            // --------------------
+
+            if file.id != 0 {
+                t.Errorf("[ f.Read().file.id ] expected: %#v, actual: %#v", 0, file.id)
+            }
+
+            // --------------------
+
+            if file.ID != 1 {
+                t.Errorf("[ f.Read().file.ID ] expected: %#v, actual: %#v", 1, file.ID)
+            }
+
+            // --------------------
+
+            if file.Path != path {
+                t.Errorf("[ f.Read().file.Path ] expected: %#v, actual: %#v", path, file.Path)
+            }
+
+            // --------------------
+
+            if file.Notes != "..." {
+                t.Errorf("[ f.Read().file.Notes ] expected: %#v, actual: %#v", "...", file.Notes)
+            }
+
+            // --------------------
+
+            if file.hostsFile != nil {
+                t.Errorf("[ f.Read().file.hostsFile ] expected: %#v, actual: %#v", nil, file.hostsFile)
+            }
+
+            // --------------------
+
+            if file.zones != nil {
+                t.Errorf("[ f.Read().file.zones ] expected: %#v, actual: %#v", 0, file.zones)
+            }
+        }
+
+        // --------------------
+
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -494,7 +587,7 @@ func Test_fRead(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Read().err ] expected: %s, actual: %#v", "<error>", err)
         }
     })
 }
@@ -518,6 +611,13 @@ func Test_readFile(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
+        f.zones = make([]*zoneObject, 0)
+
         // --------------------
 
         file, err := readFile(f)
@@ -525,27 +625,76 @@ func Test_readFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ readFile(f) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ readFile(f).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
         if file == nil {
-            t.Errorf("[ readFile(f) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ readFile(f) ] expected: not %#v, actual: %#v", nil, f)
         } else {
-
 
             // --------------------
 
-            checksum := sha1.Sum(data)
-            expected := hex.EncodeToString(checksum[:])
-            if file.checksum != expected {
-                t.Errorf("[ file.checksum ] expected: %#v, actual: %#v", expected, file.checksum)
+            if file.id == 0 {
+                t.Errorf("[ readFile(f).id ] expected: not %#v, actual: %#v", 0, file.id)
+            }
+
+            // --------------------
+
+            if file.ID != int(f.id) {
+                t.Errorf("[ readFile(f).ID ] expected: %#v, actual: %#v", f.id, file.ID)
+            }
+
+            // --------------------
+
+            if file.Path != f.Path {
+                t.Errorf("[ readFile(f).Path ] expected: %#v, actual: %#v", f.Path, file.Path)
+            }
+
+            // --------------------
+
+            if file.Notes != f.Notes {
+                t.Errorf("[ readFile(f).Notes ] expected: %#v, actual: %#v", f.Notes, file.Notes)
+            }
+
+            // --------------------
+
+            if file.hostsFile == nil {
+                t.Errorf("[ readFile(f).hostsFile ] expected: not %#v, actual: %#v", nil, file.hostsFile)
+            } else {
+
+                // --------------------
+
+                if file.hostsFile.file != f {
+                    t.Errorf("[ readFile(f).hostsFile.file ] expected: %#v, actual: %#v", f, file.hostsFile.file)
+                }
+
+                // --------------------
+
+                if file.hostsFile.data != nil {
+                    t.Errorf("[ lookupFile(fValues).hostsFile.data ] expected: %#v, actual: %#v", nil, file.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum(data)
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ readFile(f).hostsFile.checksum ] expected: %#v, actual: %#v", expected, file.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if len(file.zones) != 1 {
+                t.Errorf("[ readFile(f).zones ] expected: %#v, actual: %#v", 1, len(file.zones))
             }
         }
 
         // --------------------
 
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -571,7 +720,7 @@ func Test_readFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ readFile(f) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ readFile(f).err ] expected: %s, actual: %#v", "<error>", err)
         }
 
         // --------------------
@@ -579,6 +728,8 @@ func Test_readFile(t *testing.T) {
         os.Remove(path)
     })
 }
+
+// -----------------------------------------------------------------------------
 
 func Test_fUpdate(t *testing.T) {
     var test string
@@ -588,39 +739,22 @@ func Test_fUpdate(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Read() ] cannot write test-file")
-        }
-
         f := new(File)
-        f.Path = path
-        addFile(f)
         f.ID = 0
-
-        z := new(Zone)
-        z.File = int(f.id)
-        z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
-        addZone(z)
 
         // --------------------
 
         fValues := new(File)
 
-        err = f.Update(fValues)
+        err := f.Update(fValues)
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Update().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "missing 'f.ID'") {
+            t.Errorf("[ f.Update().err.Error() ] expected: contains %#v, actual: %#v", "missing 'f.ID'", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "not found"
@@ -628,38 +762,22 @@ func Test_fUpdate(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Read() ] cannot write test-file")
-        }
-
         f := new(File)
-        f.Path = path
-        f.ID = 1
-
-        z := new(Zone)
-        z.File = int(f.id)
-        z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
-        addZone(z)
+        f.ID = 42
 
         // --------------------
 
         fValues := new(File)
 
-        err = f.Update(fValues)
+        err := f.Update(fValues)
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Read() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Update().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "not found") {
+            t.Errorf("[ f.Update().err.Error() ] expected: contains %#v, actual: %#v", "not found", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "updated"
@@ -678,11 +796,21 @@ func Test_fUpdate(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
         z := new(Zone)
         z.File = int(f.id)
         z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
         addZone(z)
+
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "# some updated data")
+        f.zones = append(f.zones, zo)
 
         // --------------------
 
@@ -693,11 +821,13 @@ func Test_fUpdate(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ f.Update(fValues) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ f.Update(fValues).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -716,11 +846,21 @@ func Test_fUpdate(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
         z := new(Zone)
         z.File = int(f.id)
         z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
         addZone(z)
+
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "# some updated data")
+        f.zones = append(f.zones, zo)
 
         // --------------------
 
@@ -731,11 +871,13 @@ func Test_fUpdate(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Update(fValues) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Update(fValues).err ] expected: %s, actual: %#v", "<error>", err)
         }
 
         // --------------------
 
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 }
@@ -757,43 +899,96 @@ func Test_updateFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
+        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
 
         z := new(Zone)
         z.File = int(f.id)
         z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
         addZone(z)
+
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "# some updated data")
+        f.zones = append(f.zones, zo)
 
         // --------------------
 
         fValues := new(File)
+        fValues.Notes = "...updated notes"
 
         err = updateFile(f, fValues)
 
         // --------------------
 
         if err != nil {
-            t.Errorf("[ updateFile(f) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ updateFile(f).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
         if f == nil {
-            t.Errorf("[ updateFile(f) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ updateFile(f) ] expected: not %#v, actual: %#v", nil, f)
         } else {
 
             // --------------------
 
-            checksum := sha1.Sum([]byte(z.lines[0] + "\n"))
-            expected := hex.EncodeToString(checksum[:])
-            if f.checksum != expected {
-                t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", expected, f.checksum)
+            if f.Path != path {
+                t.Errorf("[ updateFile(f).Path ] expected: %#v, actual: %#v", path, f.Path)
+            }
+
+            // --------------------
+
+            if f.Notes != fValues.Notes {
+                t.Errorf("[ updateFile(f).Notes ] expected: %#v, actual: %#v", fValues.Notes, f.Notes)
+            }
+
+            // --------------------
+
+            if f.hostsFile == nil {
+                t.Errorf("[ updateFile(f).hostsFile ] expected: not %#v, actual: %#v", nil, f.hostsFile)
+            } else {
+
+                // --------------------
+
+                if f.hostsFile.file != f {
+                    t.Errorf("[ updateFile(f).hostsFile.file ] expected: %#v, actual: %#v", f, f.hostsFile.file)
+                }
+
+                // --------------------
+
+                if f.hostsFile.data != nil {
+                    t.Errorf("[ updateFile(f).hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum([]byte(zo.lines[0] + "\n"))
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ updateFile(f).hostsFile.checksum ] expected: %#v, actual: %#v", expected, f.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if len(f.zones) != 1 {
+                t.Errorf("[ updateFile(f).zones ] expected: %#v, actual: %#v", 1, len(f.zones))
             }
         }
 
         // --------------------
 
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -819,31 +1014,41 @@ func Test_updateFile(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
+
         z := new(Zone)
         z.File = int(f.id)
         z.Name = "external"
-        z.lines = append(z.lines, "# some data")
         addZone(z)
 
-        checksum := sha1.Sum([]byte(z.lines[0] + "\n"))
-        f.checksum = hex.EncodeToString(checksum[:])
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "# some data")
+        f.zones = append(f.zones, zo)
 
         // --------------------
 
         fValues := new(File)
+        fValues.Notes = "...updated notes"
 
         err = updateFile(f, fValues)
 
         // --------------------
 
         if err != nil {
-            t.Errorf("[ updateFile(f) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ updateFile(f).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
         if f == nil {
-            t.Errorf("[ updateFile(f) ] expected: %s, actual: %#v", "not <nil>", f)
+            t.Errorf("[ updateFile(f) ] expected: not %#v, actual: %#v", nil, f)
         } else {
 
             // --------------------
@@ -861,6 +1066,8 @@ func Test_updateFile(t *testing.T) {
 
         // --------------------
 
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -868,6 +1075,8 @@ func Test_updateFile(t *testing.T) {
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
+
+        data := []byte("# some data")
 
         path := "_test-hosts"
         err := os.Mkdir(path, 0644)
@@ -877,64 +1086,124 @@ func Test_updateFile(t *testing.T) {
 
         f := new(File)
         f.Path = path
+        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
 
         z := new(Zone)
         z.File = int(f.id)
         z.Name = "external"
-        z.lines = append(z.lines, "# some updated data")
         addZone(z)
+
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "# some updated data")
+        f.zones = append(f.zones, zo)
 
         // --------------------
 
         fValues := new(File)
+        fValues.Notes = "...updated notes"
 
         err = updateFile(f, fValues)
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ updateFile(f) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ updateFile(f).err ] expected: %s, actual: %#v", "<error>", err)
         }
 
         // --------------------
 
+        if f == nil {
+            t.Errorf("[ updateFile(f) ] expected: not %#v, actual: %#v", nil, f)
+        } else {
+
+            // --------------------
+
+            if f.Path != path {
+                t.Errorf("[ updateFile(f).Path ] expected: %#v, actual: %#v", path, f.Path)
+            }
+
+            // --------------------
+
+            if f.Notes != "..." {
+                t.Errorf("[ updateFile(f).Notes ] expected: %#v, actual: %#v", "...", f.Notes)
+            }
+
+            // --------------------
+
+            if f.hostsFile == nil {
+                t.Errorf("[ updateFile(f).hostsFile ] expected: not %#v, actual: %#v", nil, f.hostsFile)
+            } else {
+
+                // --------------------
+
+                if f.hostsFile.file != f {
+                    t.Errorf("[ updateFile(f).hostsFile.file ] expected: %#v, actual: %#v", f, f.hostsFile.file)
+                }
+
+                // --------------------
+
+                if f.hostsFile.data != nil {
+                    t.Errorf("[ updateFile(f).hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum(data)
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ updateFile(f).hostsFile.checksum ] expected: %#v, actual: %#v", expected, f.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if len(f.zones) != 1 {
+                t.Errorf("[ updateFile(f).zones ] expected: %#v, actual: %#v", 1, len(f.zones))
+            }
+        }
+
+        // --------------------
+
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 }
 
+// -----------------------------------------------------------------------------
+
 func Test_fDelete(t *testing.T) {
     var test string
 
-    test = "no-ID"
+    test = "missing-ID"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Delete() ] cannot write test-file")
-        }
-
         f := new(File)
-        addFile(f)
         f.ID = 0
 
         // --------------------
 
-        err = f.Delete()
+        err := f.Delete()
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Delete() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Delete().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "missing 'f.ID'") {
+            t.Errorf("[ f.Delete().err.Error() ] expected: contains %#v, actual: %#v", "missing 'f.ID'", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "not-found"
@@ -942,29 +1211,20 @@ func Test_fDelete(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-        data := []byte("# some data")
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ f.Delete() ] cannot write test-file")
-        }
-
         f := new(File)
-        f.ID = 1
+        f.ID = 42
 
         // --------------------
 
-        err = f.Delete()
+        err := f.Delete()
 
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Delete() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Delete().err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "not found") {
+            t.Errorf("[ f.Delete().err.Error() ] expected: contains %#v, actual: %#v", "not found", err.Error())
         }
-
-        // --------------------
-
-        os.Remove(path)
     })
 
     test = "deleted"
@@ -983,6 +1243,13 @@ func Test_fDelete(t *testing.T) {
         f.Path = path
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
+
         // --------------------
 
         err = f.Delete()
@@ -990,11 +1257,12 @@ func Test_fDelete(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ f.Delete() ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ f.Delete().err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -1007,6 +1275,11 @@ func Test_fDelete(t *testing.T) {
         f.Path = "_doesnt-exist.txt"
         addFile(f)
 
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
         // --------------------
 
         err := f.Delete()
@@ -1014,8 +1287,12 @@ func Test_fDelete(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ f.Delete() ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ f.Delete().err ] expected: %s, actual: %#v", "<error>", err)
         }
+
+        // --------------------
+
+        fo.file = nil   // !!! avoid memory leaks
     })
 }
 
@@ -1037,8 +1314,16 @@ func Test_deleteFile(t *testing.T) {
         f := new(File)
         f.Path = path
         f.Notes = "..."
-        f.checksum = "x"
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
+
+        f.zones = make([]*zoneObject, 0)
 
         // --------------------
 
@@ -1047,7 +1332,7 @@ func Test_deleteFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ deleteFile(f) ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ deleteFile(f).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
@@ -1076,8 +1361,14 @@ func Test_deleteFile(t *testing.T) {
 
         // --------------------
 
-        if f.checksum != "" {
-            t.Errorf("[ f.checksum ] expected: %#v, actual: %#v", "", f.checksum)
+        if f.hostsFile != nil {
+            t.Errorf("[ f.hostsFile ] expected: %#v, actual: %#v", nil, f.hostsFile)
+        }
+
+        // --------------------
+
+        if f.zones != nil {
+            t.Errorf("[ f.zones ] expected: %#v, actual: %#v", nil, f.zones)
         }
 
         // --------------------
@@ -1089,6 +1380,14 @@ func Test_deleteFile(t *testing.T) {
 
         // --------------------
 
+        _, err = ioutil.ReadFile(path)
+        if err == nil {
+                t.Errorf("[ ioutil.ReadFile(f.Path).err ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -1108,10 +1407,14 @@ func Test_deleteFile(t *testing.T) {
         f.Path = path
         addFile(f)
 
-        z := new(Zone)
-        z.File = f.ID
-        z.Name = "external"
-        addZone(z)
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
+
+        f.zones = append(f.zones, new(zoneObject))
 
         // --------------------
 
@@ -1120,28 +1423,28 @@ func Test_deleteFile(t *testing.T) {
         // --------------------
 
         if err != nil {
-            t.Errorf("[ deleteFile(f) ] expected: %#v, actual: %#v", nil, err)
-        } else {
-
-            // --------------------
-
-            f = lookupFile(f)
-            if f != nil {
-                t.Errorf("[ lookupFile(f) ] expected: %#v, actual: %#v", nil, f)
-            }
-
-            // --------------------
-
-            readData, err := ioutil.ReadFile(path)
-            if err != nil {
-                t.Errorf("[ ioutil.ReadFile(fValues.Path) ] expected: %s, actual: %#v", "not <nil>", err)
-            } else if len(readData) != len(data) {
-                t.Errorf("[ len(ioutil.ReadFile(fValues.Path)) ] expected: %#v, actual: %#v", len(data), len(readData))
-            }
+            t.Errorf("[ deleteFile(f).err ] expected: %#v, actual: %#v", nil, err)
         }
 
         // --------------------
 
+        f = lookupFile(f)
+        if f != nil {
+            t.Errorf("[ lookupFile(f) ] expected: %#v, actual: %#v", nil, f)
+        }
+
+        // --------------------
+
+        readData, err := ioutil.ReadFile(path)
+        if err != nil {
+            t.Errorf("[ ioutil.ReadFile(fValues.Path).err ] expected: %#v, actual: %#v", nil, err)
+        } else if len(readData) != len(data) {
+            t.Errorf("[ len(ioutil.ReadFile(fValues.Path)).data ] expected: %#v, actual: %#v", len(data), len(readData))
+        }
+
+        // --------------------
+
+        fo.file = nil   // !!! avoid memory leaks
         os.Remove(path)
     })
 
@@ -1150,9 +1453,22 @@ func Test_deleteFile(t *testing.T) {
 
         resetFileTestEnv()
 
+        data := []byte("# some data")
+        path := "_doesnt-exist.txt"
+
         f := new(File)
-        f.Path = "_doesnt-exist.txt"
+        f.Path = path
+        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+        addFileObject(f.hostsFile)
+
+        f.zones = make([]*zoneObject, 0)
 
         // --------------------
 
@@ -1161,12 +1477,70 @@ func Test_deleteFile(t *testing.T) {
         // --------------------
 
         if err == nil {
-            t.Errorf("[ deleteFile(f) ] expected: %s, actual: %#v", "<error>", err)
+            t.Errorf("[ deleteFile(f).err ] expected: %s, actual: %#v", "<error>", err)
         }
+
+        // --------------------
+
+        if f == nil {
+            t.Errorf("[ updateFile(f) ] expected: not %#v, actual: %#v", nil, f)
+        } else {
+
+            // --------------------
+
+            if f.Path != path {
+                t.Errorf("[ updateFile(f).Path ] expected: %#v, actual: %#v", path, f.Path)
+            }
+
+            // --------------------
+
+            if f.Notes != "..." {
+                t.Errorf("[ updateFile(f).Notes ] expected: %#v, actual: %#v", "...", f.Notes)
+            }
+
+            // --------------------
+
+            if f.hostsFile == nil {
+                t.Errorf("[ updateFile(f).hostsFile ] expected: not %#v, actual: %#v", nil, f.hostsFile)
+            } else {
+
+                // --------------------
+
+                if f.hostsFile.file != f {
+                    t.Errorf("[ updateFile(f).hostsFile.file ] expected: %#v, actual: %#v", f, f.hostsFile.file)
+                }
+
+                // --------------------
+
+                if f.hostsFile.data != nil {
+                    t.Errorf("[ updateFile(f).hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+                }
+
+                // --------------------
+
+                checksum := sha1.Sum(data)
+                expected := hex.EncodeToString(checksum[:])
+                if f.hostsFile.checksum != expected {
+                    t.Errorf("[ updateFile(f).hostsFile.checksum ] expected: %#v, actual: %#v", expected, f.hostsFile.checksum)
+                }
+            }
+
+            // --------------------
+
+            if f.zones == nil {
+                t.Errorf("[ updateFile(f).zones ] expected: not %#v, actual: %#v", nil, f.zones)
+            }
+        }
+
+        // --------------------
+
+        fo.file = nil   // !!! avoid memory leaks
     })
 }
 
-func Test_goRenderZones(t *testing.T) {
+// -----------------------------------------------------------------------------
+
+func Test_goRenderFile(t *testing.T) {
     var test string
 
     test = "rendered/only-external"
@@ -1174,37 +1548,59 @@ func Test_goRenderZones(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-
         f := new(File)
-        f.Path = path
+        f.Path = "_test-hosts.txt"
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         z := new(Zone)
         z.File = f.ID
         z.Name = "external"
-        z.lines = append(z.lines, "")
-        z.lines = append(z.lines, "# some data")
         addZone(z)
+
+        zo := new(zoneObject)
+        z.fileZone = zo   // !!! beware of memory leaks
+        zo.zone = z       // !!! beware of memory leaks
+        zo.lines = append(zo.lines, "")
+        zo.lines = append(zo.lines, "# some data")
+        zo.lines = append(zo.lines, "")
+        f.zones = append(f.zones, zo)
 
         expectedData := []byte(`
 # some data
+
 `)
 
         // --------------------
 
-        b := bytes.NewBuffer([]byte(nil))
-        done := goRenderZones(f, io.Writer(b))
+        done := goRenderFile(f)
         _ = <-done
-        data := b.Bytes()
 
         // --------------------
 
-        expectedChecksum := sha1.Sum(expectedData)
-        actualChecksum := sha1.Sum(data)
-        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
-            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        hash := sha1.Sum(expectedData)
+        expectedChecksum := hex.EncodeToString(hash[:])
+
+        hash = sha1.Sum(f.hostsFile.data)
+        actualChecksum := hex.EncodeToString(hash[:])
+        if actualChecksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.data ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
         }
+
+        // --------------------
+
+        if f.hostsFile.checksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.checksum ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
+        }
+
+        // --------------------
+
+        zo.zone = nil   // !!! avoid memory leaks
+        fo.file = nil   // !!! avoid memory leaks
     })
 
     test = "rendered/1-managed"
@@ -1212,27 +1608,42 @@ func Test_goRenderZones(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-
         f := new(File)
-        f.Path = path
+        f.Path = "_test-hosts.txt"
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         z1 := new(Zone)
         z1.File = f.ID
         z1.Name = "external"
-        z1.lines = append(z1.lines, "")
-        z1.lines = append(z1.lines, "# some data")
-        z1.lines = append(z1.lines, "")
         addZone(z1)
+
+        zo1 := new(zoneObject)
+        z1.fileZone = zo1   // !!! beware of memory leaks
+        zo1.zone = z1       // !!! beware of memory leaks
+        zo1.lines = append(zo1.lines, "")
+        zo1.lines = append(zo1.lines, "# some data")
+        zo1.lines = append(zo1.lines, "")
+        f.zones = append(f.zones, zo1)
 
         z2 := new(Zone)
         z2.File = f.ID
         z2.Name = "my-zone-1"
-        z2.lines = append(z2.lines, "")
-        z2.lines = append(z2.lines, "# some data")
-        z2.lines = append(z2.lines, "")
         addZone(z2)
+
+        zo2 := new(zoneObject)
+        z2.fileZone = zo2   // !!! beware of memory leaks
+        zo2.zone = z2       // !!! beware of memory leaks
+        zo2.lines = append(zo2.lines, "##### Start Of Terraform Zone: my-zone-1 #######################################")
+        zo2.lines = append(zo2.lines, "")
+        zo2.lines = append(zo2.lines, "# some data")
+        zo2.lines = append(zo2.lines, "")
+        zo2.lines = append(zo2.lines, "##### End Of Terraform Zone: my-zone-1 #########################################")
+        f.zones = append(f.zones, zo2)
 
         expectedData := []byte(`
 # some data
@@ -1246,18 +1657,31 @@ func Test_goRenderZones(t *testing.T) {
 
         // --------------------
 
-        b := bytes.NewBuffer([]byte(nil))
-        done := goRenderZones(f, io.Writer(b))
+        done := goRenderFile(f)
         _ = <-done
-        data := b.Bytes()
 
         // --------------------
 
-        expectedChecksum := sha1.Sum(expectedData)
-        actualChecksum := sha1.Sum(data)
-        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
-            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        hash := sha1.Sum(expectedData)
+        expectedChecksum := hex.EncodeToString(hash[:])
+
+        hash = sha1.Sum(f.hostsFile.data)
+        actualChecksum := hex.EncodeToString(hash[:])
+        if actualChecksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.data ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
         }
+
+        // --------------------
+
+        if f.hostsFile.checksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.checksum ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
+        }
+
+        // --------------------
+
+        zo1.zone = nil   // !!! avoid memory leaks
+        zo2.zone = nil   // !!! avoid memory leaks
+        fo.file = nil    // !!! avoid memory leaks
     })
 
     test = "rendered/more-managed"
@@ -1265,35 +1689,57 @@ func Test_goRenderZones(t *testing.T) {
 
         resetFileTestEnv()
 
-        path := "_test-hosts.txt"
-
         f := new(File)
-        f.Path = path
+        f.Path = "_test-hosts.txt"
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         z1 := new(Zone)
         z1.File = f.ID
         z1.Name = "external"
-        z1.lines = append(z1.lines, "")
-        z1.lines = append(z1.lines, "# some data")
-        z1.lines = append(z1.lines, "")
         addZone(z1)
+
+        zo1 := new(zoneObject)
+        z1.fileZone = zo1   // !!! beware of memory leaks
+        zo1.zone = z1       // !!! beware of memory leaks
+        zo1.lines = append(zo1.lines, "")
+        zo1.lines = append(zo1.lines, "# some data")
+        zo1.lines = append(zo1.lines, "")
+        f.zones = append(f.zones, zo1)
 
         z2 := new(Zone)
         z2.File = f.ID
         z2.Name = "my-zone-1"
-        z2.lines = append(z2.lines, "")
-        z2.lines = append(z2.lines, "# some data")
-        z2.lines = append(z2.lines, "")
         addZone(z2)
+
+        zo2 := new(zoneObject)
+        z2.fileZone = zo2   // !!! beware of memory leaks
+        zo2.zone = z2       // !!! beware of memory leaks
+        zo2.lines = append(zo2.lines, "##### Start Of Terraform Zone: my-zone-1 #######################################")
+        zo2.lines = append(zo2.lines, "")
+        zo2.lines = append(zo2.lines, "# some data")
+        zo2.lines = append(zo2.lines, "")
+        zo2.lines = append(zo2.lines, "##### End Of Terraform Zone: my-zone-1 #########################################")
+        f.zones = append(f.zones, zo2)
 
         z3 := new(Zone)
         z3.File = f.ID
         z3.Name = "my-zone-2"
-        z3.lines = append(z3.lines, "")
-        z3.lines = append(z3.lines, "# some data")
-        z3.lines = append(z3.lines, "")
         addZone(z3)
+
+        zo3 := new(zoneObject)
+        z3.fileZone = zo3   // !!! beware of memory leaks
+        zo3.zone = z3       // !!! beware of memory leaks
+        zo2.lines = append(zo2.lines, "##### Start Of Terraform Zone: my-zone-2 #######################################")
+        zo3.lines = append(zo3.lines, "")
+        zo3.lines = append(zo3.lines, "# some data")
+        zo3.lines = append(zo3.lines, "")
+        zo3.lines = append(zo3.lines, "##### End Of Terraform Zone: my-zone-2 #########################################")
+        f.zones = append(f.zones, zo3)
 
         expectedData := []byte(`
 # some data
@@ -1312,22 +1758,38 @@ func Test_goRenderZones(t *testing.T) {
 
         // --------------------
 
-        b := bytes.NewBuffer([]byte(nil))
-        done := goRenderZones(f, io.Writer(b))
+        done := goRenderFile(f)
         _ = <-done
-        data := b.Bytes()
 
         // --------------------
 
-        expectedChecksum := sha1.Sum(expectedData)
-        actualChecksum := sha1.Sum(data)
-        if hex.EncodeToString(actualChecksum[:]) != hex.EncodeToString(expectedChecksum[:]) {
-            t.Errorf("[ goRenderZones() < external.lines ] expected: %#v, actual: %#v", expectedData, data)
+        hash := sha1.Sum(expectedData)
+        expectedChecksum := hex.EncodeToString(hash[:])
+
+        hash = sha1.Sum(f.hostsFile.data)
+        actualChecksum := hex.EncodeToString(hash[:])
+        if actualChecksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.data ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
         }
+
+        // --------------------
+
+        if f.hostsFile.checksum != expectedChecksum {
+            t.Errorf("[ goRenderFile() > f.hostsFile.checksum ] expected: %#v, actual: %#v", expectedData, f.hostsFile.data)
+        }
+
+        // --------------------
+
+        zo1.zone = nil   // !!! avoid memory leaks
+        zo2.zone = nil   // !!! avoid memory leaks
+        zo3.zone = nil   // !!! avoid memory leaks
+        fo.file = nil    // !!! avoid memory leaks
     })
 }
 
-func Test_goScanZones(t *testing.T) {
+// -----------------------------------------------------------------------------
+
+func Test_goScanFile(t *testing.T) {
     var test string
 
     test = "scanned/only-external"
@@ -1338,21 +1800,32 @@ func Test_goScanZones(t *testing.T) {
         path := "_test-hosts.txt"
         data := []byte(`
 # some data
+
 `)
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ goScanZones() ] cannot write test-file")
-        }
 
         f := new(File)
         f.Path = path
-        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         // --------------------
 
-        done := goScanZones(f, bytes.NewReader(data))
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 1 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 1, len(f.zones))
+        }
 
         // --------------------
 
@@ -1361,23 +1834,21 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 2 {
-                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 2, len(z.lines))
+            if len(z.records) != 3 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 3, len(z.records))
             }
 
         }
 
         // --------------------
 
-        os.Remove(path)
+        fo.file = nil    // !!! avoid memory leaks
     })
 
     test = "scanned/1-managed"
@@ -1396,21 +1867,32 @@ func Test_goScanZones(t *testing.T) {
 ##### End Of Terraform Zone: my-zone-1 #########################################
 
 # some final data
+
 `)
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ goScanZones() ] cannot write test-file")
-        }
 
         f := new(File)
         f.Path = path
-        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         // --------------------
 
-        done := goScanZones(f, bytes.NewReader(data))
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 2 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 2, len(f.zones))
+        }
 
         // --------------------
 
@@ -1419,16 +1901,14 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 5 {
-                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 5, len(z.lines))
+            if len(z.records) != 6 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 6, len(z.records))
             }
 
         }
@@ -1440,23 +1920,21 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "my-zone-1"
         z = lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-1) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 3 {
-                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-1).records ] expected: %#v, actual: %#v", 5, len(z.records))
             }
 
         }
 
         // --------------------
 
-        os.Remove(path)
+        fo.file = nil    // !!! avoid memory leaks
     })
 
     test = "scanned/more-managed"
@@ -1483,21 +1961,32 @@ func Test_goScanZones(t *testing.T) {
 ##### End Of Terraform Zone: my-zone-2 #########################################
 
 # some final data
+
 `)
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ goScanZones() ] cannot write test-file")
-        }
 
         f := new(File)
         f.Path = path
-        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         // --------------------
 
-        done := goScanZones(f, bytes.NewReader(data))
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 3 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 3, len(f.zones))
+        }
 
         // --------------------
 
@@ -1506,16 +1995,14 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 8 {
-                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 8, len(z.lines))
+            if len(z.records) != 9 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 9, len(z.records))
             }
 
         }
@@ -1527,16 +2014,14 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "my-zone-1"
         z = lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-1) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 3 {
-                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-1).records ] expected: %#v, actual: %#v", 5, len(z.records))
             }
 
         }
@@ -1548,26 +2033,193 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "my-zone-2"
         z = lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > my-zone-2 ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-2) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 3 {
-                t.Errorf("[ goScanZones() > my-zone-2.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-2).records ] expected: %#v, actual: %#v", 5, len(z.records))
             }
 
         }
 
         // --------------------
 
-        os.Remove(path)
+        fo.file = nil    // !!! avoid memory leaks
     })
 
-    test = "missing-end-marker"
+    test = "scanned/unexpected-start-zone-marker"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### Start Of Terraform Zone: my-zone-2 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-2 #########################################
+`)
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
+        // --------------------
+
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 3 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 3, len(f.zones))
+        }
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        if z == nil {
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
+        } else {
+
+            // --------------------
+
+            if len(z.records) != 3 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 3, len(z.records))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z = lookupZone(zQuery)
+
+        if z == nil {
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-1) ] expected: not %#v, actual: %#v", nil, z)
+        } else {
+
+            // --------------------
+
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-1).records ] expected: %#v, actual: %#v", 5, len(z.records))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-2"
+        z = lookupZone(zQuery)
+
+        if z == nil {
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-2) ] expected: not %#v, actual: %#v", nil, z)
+        } else {
+
+            // --------------------
+
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-2).records ] expected: %#v, actual: %#v", 5, len(z.records))
+            }
+
+        }
+
+        // --------------------
+
+        fo.file = nil    // !!! avoid memory leaks
+    })
+
+    test = "scanned/unexpected-end-zone-marker"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data := []byte(`
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+
+# some final data
+
+`)
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
+        // --------------------
+
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
+        _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 1 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 1, len(f.zones))
+        }
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        if z == nil {
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
+        } else {
+
+            // --------------------
+
+            if len(z.records) != 6 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 6, len(z.records))
+            }
+
+        }
+
+        // --------------------
+
+        fo.file = nil    // !!! avoid memory leaks
+    })
+
+    test = "scanned/missing-end-zone-marker"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -1581,20 +2233,30 @@ func Test_goScanZones(t *testing.T) {
 # some data
 
 `)
-        err := ioutil.WriteFile(path, data, 0644)
-        if err != nil {
-            t.Errorf("[ goScanZones() ] cannot write test-file")
-        }
 
         f := new(File)
         f.Path = path
-        f.Notes = "..."
         addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
 
         // --------------------
 
-        done := goScanZones(f, bytes.NewReader(data))
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 2 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 2, len(f.zones))
+        }
 
         // --------------------
 
@@ -1603,16 +2265,14 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > external ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 3 {
-                t.Errorf("[ goScanZones() > external.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            if len(z.records) != 3 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 3, len(z.records))
             }
 
         }
@@ -1624,22 +2284,327 @@ func Test_goScanZones(t *testing.T) {
         zQuery.Name = "my-zone-1"
         z = lookupZone(zQuery)
 
-        // --------------------
-
         if z == nil {
-            t.Errorf("[ goScanZones() > my-zone-1 ] expected: %#v, actual: %#v", nil, err)
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-1) ] expected: not %#v, actual: %#v", nil, z)
         } else {
 
             // --------------------
 
-            if len(z.lines) != 3 {
-                t.Errorf("[ goScanZones() > my-zone-1.lines ] expected: %#v, actual: %#v", 3, len(z.lines))
+            if len(z.records) != 5 {
+                t.Errorf("[ goScanFile() > lookupZone(my-zone-1).records ] expected: %#v, actual: %#v", 5, len(z.records))
             }
 
         }
 
         // --------------------
 
-        os.Remove(path)
+        fo.file = nil    // !!! avoid memory leaks
+    })
+
+    test = "scanned/cleanup-deleted-zones"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        path := "_test-hosts.txt"
+        data1 := []byte(`
+# some data
+
+##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+`)
+
+        f := new(File)
+        f.Path = path
+        addFile(f)
+
+        fo := new(fileObject)
+        f.hostsFile = fo   // !!! beware of memory leaks
+        fo.file = f        // !!! beware of memory leaks
+        addFileObject(f.hostsFile)
+
+        done := goScanFile(f.hostsFile, bytes.NewReader(data1))
+        _ = <-done
+
+        // --------------------
+
+        data2 := []byte(`
+# some other data
+
+`)
+
+        done = goScanFile(f.hostsFile, bytes.NewReader(data2))
+        _ = <-done
+
+        // --------------------
+
+        if f.hostsFile.data != nil {
+            t.Errorf("[ goScanFile() > f.hostsFile.data ] expected: %#v, actual: %#v", nil, f.hostsFile.data)
+        }
+
+        if len(f.zones) != 1 {
+            t.Errorf("[ goScanFile() > f.zones ] expected: %#v, actual: %#v", 1, len(f.zones))
+        }
+
+        // --------------------
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "external"
+        z := lookupZone(zQuery)
+
+        if z == nil {
+            t.Errorf("[ goScanFile() > lookupZone(external) ] expected: not %#v, actual: %#v", nil, z)
+        } else {
+
+            // --------------------
+
+            if len(z.records) != 3 {
+                t.Errorf("[ goScanFile() > lookupZone(external).records ] expected: %#v, actual: %#v", 3, len(z.records))
+            }
+
+        }
+
+        // --------------------
+
+        zQuery = new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z = lookupZone(zQuery)
+
+        if z != nil {
+            t.Errorf("[ goScanFile() > lookupZone(my-zone-1) ] expected: %#v, actual: %#v", nil, z)
+            if z.fileZone != nil {
+                log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanFile()] z.Name: %q", z.Name)
+                log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanFile()] z.fileZone.lines:")
+                for i, line := range z.fileZone.lines {
+                    log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanFile()] %d: %q", i, line)
+                }
+            }
+        }
+
+        // --------------------
+
+        fo.file = nil    // !!! avoid memory leaks
+    })
+}
+
+//------------------------------------------------------------------------------
+
+func Test_addZoneObject(t *testing.T) {
+    var test string
+
+    test = "added"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        // --------------------
+
+        f := new(File)
+        z := new(zoneObject)
+        addZoneObject(f, z)
+
+        // --------------------
+
+        length := len(f.zones)
+        if length != 1 {
+            t.Errorf("[ len(f.zones) ] expected: %#v, actual: %#v", 1, length)
+        }
+    })
+}
+
+func Test_removeZoneObject(t *testing.T) {
+    var test string
+
+    test = "empty"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        f := new(File)
+        z := new(zoneObject)
+
+        removeZoneObject(f, z)
+
+        // --------------------
+
+        // nothing to test - making sure this doesn't throw a Fatal error
+
+    })
+
+    test = "removed"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        f := new(File)
+        z := new(zoneObject)
+        addZoneObject(f, z)
+
+        // --------------------
+
+        removeZoneObject(f, z)
+
+        // --------------------
+
+        length := len(f.zones)
+        if length != 0 {
+            t.Errorf("[ len(f.zones) ] expected: %#v, actual: %#v", 0, length)
+        }
+    })
+}
+
+func Test_deleteFromSliceOfZoneObjects(t *testing.T) {
+    var test string
+
+    test = "empty"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        s1 := make([]*zoneObject, 0)
+
+        z := new(zoneObject)
+
+        // --------------------
+
+        _ = deleteFromSliceOfZoneObjects(s1, z)
+
+        // --------------------
+
+        // nothing to test - making sure this doesn't throw a Fatal error
+
+    })
+
+    test = "1-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        s1 := make([]*zoneObject, 0)
+
+        z := new(zoneObject)
+        s1 = append(s1, z)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfZoneObjects(s1, z)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+    })
+
+    test = "more-elements/first-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        s1 := make([]*zoneObject, 0)
+
+        z1 := new(zoneObject)
+        s1 = append(s1, z1)
+
+        z2 := new(zoneObject)
+        s1 = append(s1, z2)
+
+        z3 := new(zoneObject)
+        s1 = append(s1, z3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfZoneObjects(s1, z1)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == z1 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
+            }
+        }
+    })
+
+    test = "more-elements/middle-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        s1 := make([]*zoneObject, 0)
+
+        z1 := new(zoneObject)
+        s1 = append(s1, z1)
+
+        z2 := new(zoneObject)
+        s1 = append(s1, z2)
+
+        z3 := new(zoneObject)
+        s1 = append(s1, z3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfZoneObjects(s1, z2)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == z2 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
+            }
+        }
+    })
+    
+    test = "more-elements/last-element"
+    t.Run(test, func(t *testing.T) {
+
+        resetFileTestEnv()
+
+        s1 := make([]*zoneObject, 0)
+
+        z1 := new(zoneObject)
+        s1 = append(s1, z1)
+
+        z2 := new(zoneObject)
+        s1 = append(s1, z2)
+
+        z3 := new(zoneObject)
+        s1 = append(s1, z3)
+
+        // --------------------
+
+        s2 := deleteFromSliceOfZoneObjects(s1, z3)
+
+        // --------------------
+
+        len1 := len(s1)
+        len2 := len(s2)
+        if len2 != len1-1 {
+            t.Errorf("[ len(s2) ] expected: %#v, actual: %#v", len1-1, len2)
+        }
+
+        for i, element := range s2 {
+            if element == z3 {
+                t.Errorf("[ for s2[element].i ] expected: %s, actual: %#v", "<not found>", i)
+            }
+        }
     })
 }

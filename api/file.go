@@ -200,6 +200,9 @@ func createFile(fValues *File) error {
             return err
         }
 
+        checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+
         // process data
         done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
@@ -219,9 +222,10 @@ func readFile(f *File) (file *File, err error) {
     newChecksum := hex.EncodeToString(checksum[:])
 
     if f.hostsFile.checksum != newChecksum {
+        f.hostsFile.checksum = newChecksum
+
         // process data
-        b := bytes.NewBuffer(data)
-        done := goScanFile(f.hostsFile, io.Reader(b))
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
         _ = <-done
     }
 
@@ -257,10 +261,6 @@ func updateFile(f *File, fValues *File) error {
 
         // don't keep rendered data in memory
         f.hostsFile.data = []byte(nil)
-    } else {                         // requested by goScanFile()
-        // update zone & zoneObject
-        f.hostsFile = fValues.hostsFile   // !!! beware of memory leaks
-        f.hostsFile.file = f              // !!! beware of memory leaks
     }
 
     return nil
@@ -319,7 +319,8 @@ func goRenderFile(f *File) chan bool {
         z := lookupZone(zQuery)
         for _, line := range z.fileZone.lines {
             // update lines
-            _, _ = io.WriteString(w, line + "\n")   // error cannot happen
+            _, _ = io.WriteString(w, line)   // error cannot happen
+            _, _ = io.WriteString(w, "\n")   // error cannot happen
         }
 
         for _, zoneObject := range f.zones {
@@ -329,7 +330,8 @@ func goRenderFile(f *File) chan bool {
 
             for _, line := range zoneObject.lines {
                 // update lines
-                _, _ = io.WriteString(w, line + "\n")   // error cannot happen
+                _, _ = io.WriteString(w, line)   // error cannot happen
+                _, _ = io.WriteString(w, "\n")   // error cannot happen
             }
         }
 
@@ -351,7 +353,7 @@ func goRenderFile(f *File) chan bool {
 
 // -----------------------------------------------------------------------------
 
-func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                               // TODO cleanup old zones !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {
     done := make(chan bool)
 
     go func() {
@@ -385,6 +387,7 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                 
         done2  := goScanZone(f, fileZone, lines2)
 
         // save this channel for later use
+        fileZoneExternal := fileZone
         linesExternal := lines2
         doneExternal := done2
 
@@ -402,12 +405,13 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                 
                     log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] unexpected start-of-zone marker - missing end-of-zone marker: \n> %q", line)
 
                     // wait for goScanZone() of the current zone to finish
+                    lines2 <- endZoneMarker   // insert an endZoneMarker
                     close(lines2)
                     _ = <-done2
                 }
 
                 // create new zone
-                fileZone := new(zoneObject)
+                fileZone = new(zoneObject)
                 addZoneObject(f, fileZone)
 
                 lines2 = make(chan string)
@@ -425,25 +429,32 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                 
                 }
 
                 // wait for goScanZone() of the current zone to finish
+                fileZone.lines = append(fileZone.lines, line)
+                lines2 <- line
                 close(lines2)
                 _ = <-done2
 
                 // back to external zone
+                fileZone = fileZoneExternal
                 lines2 = linesExternal
                 done2 = doneExternal
+
+                continue
             }
 
+            fileZone.lines = append(fileZone.lines, line)
             lines2 <- line
         }
         if err := scanner.Err(); err != nil {   // cannot happen at the moment - crash if code is modified
-            // scanner error
-            if lines2 != linesExternal {
-                close(lines2)
-            }
-            close(linesExternal)
+            // // scanner error
+            // if lines2 != linesExternal {
+            //     lines2 <- endZoneMarker   // insert an endZoneMarker
+            //     close(lines2)
+            // }
+            // close(linesExternal)
+            // done <- true
+            // return
             log.Fatal(err)
-            //done <- true
-            //return
         }
 
         if lines2 != linesExternal {
@@ -451,6 +462,7 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {                 
             log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] missing end-of-zone marker")
 
             // wait for goScanZone() of the current zone to finish
+            lines2 <- endZoneMarker   // insert an endZoneMarker
             close(lines2)
             _ = <-done2
         }

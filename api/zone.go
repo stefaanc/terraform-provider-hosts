@@ -215,8 +215,6 @@ func createZone(zValues *Zone) error {
     z.Notes    = zValues.Notes
 
     z.managed  = zValues.managed   // requested by CreateZone()
-    z.fileZone = zValues.fileZone  // requested by goScanZone()
-    // z.records                   // filled by goScanZone()
 
     addZone(z)   // adds z.ID and z.id
 
@@ -244,6 +242,10 @@ func createZone(zValues *Zone) error {
 
             return err
         }
+    } else {                       // requested by goScanZone()
+        // update zone & zoneObject
+        z.fileZone = zValues.fileZone   // !!! beware of memory leaks
+        z.fileZone.zone = z             // !!! beware of memory leaks
     }
 
     return nil
@@ -295,7 +297,7 @@ func updateZone(z *Zone, zValues *Zone) error {
                 return err
             }
         }
-    } else {                         // requested by goScanZone()
+    } else {                       // requested by goScanZone()
         // update zone & zoneObject
         z.fileZone = zValues.fileZone   // !!! beware of memory leaks
         z.fileZone.zone = z             // !!! beware of memory leaks
@@ -413,8 +415,13 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
         // create a hash for the checksum of the zone
         hash := sha1.New()
 
-        // scan first line, possibly a start-zone-marker, get name of first zone
+        // scan first line, possibly a start-zone-marker
         line := <-lines
+
+        // update hash
+        _, _ = io.WriteString(hash, line)
+
+        // get zone name
         var zone string
         if strings.HasPrefix(line, startZoneMarker) {
             zone = strings.Trim(line[len(startZoneMarker):], " #")
@@ -464,12 +471,9 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
             }
         }()
 
-        // update hash
-        _, _ = io.WriteString(hash, line)
-
         // update zone
         zoneRecord := new(recordObject)
-        zoneRecord.lines[0] = line                                              // at this moment we support only single-line records
+        zoneRecord.lines = append(zoneRecord.lines, line)                       // at this moment we support only single-line records
         addRecordObject(z, zoneRecord)
 
         // collect lines
@@ -477,17 +481,30 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
             // update hash
             _, _ = io.WriteString(hash, line)
 
+            isEndMarker := strings.HasPrefix(line, endZoneMarker)
+            if isEndMarker {
+                if len(line) == len(endZoneMarker) {
+                    // no zone name in end-marker - goscanFile probably inserted missing endZoneMarker
+                    // render missing marker
+                    line = endZoneMarker + zone + " #####"
+                    padding := 80 - len(line)
+                    if padding < 0 { padding = 0 }
+                    line += strings.Repeat("#", padding)
+                    fileZone.lines = append(fileZone.lines, line)
+                }
+            }
+
             // update zone
             zoneRecord := new(recordObject)
-            zoneRecord.lines[0] = line                                          // at this moment we support only single-line records
+            zoneRecord.lines = append(zoneRecord.lines, line)                   // at this moment we support only single-line records
             addRecordObject(z, zoneRecord)
 
-            if strings.HasPrefix(line, endZoneMarker) {
+            if isEndMarker {
                 // end of zone
                 if !strings.HasPrefix(line, endZoneMarker + zone) {
                     // unexpected endZoneMarker, probably an endZone- and startZone-Marker missing => silently ignore
                     // all records from the zone with missing startZoneMarker will be in the current zone
-                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanZone()] unexpected end-of-zone marker - missing end-of-zone and start-of-zone marker: \n> %q", line)
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanZone()] unexpected end-of-zone marker - missing end-of-zone and start-of-zone marker: \n> %q\n", line)
                 }
                 break
             }
