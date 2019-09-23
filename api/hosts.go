@@ -7,6 +7,7 @@
 package api
 
 import (
+    "sync"
 )
 
 // -----------------------------------------------------------------------------
@@ -22,19 +23,13 @@ type anchor struct {
     files []*fileObject   // !!! beware of memory leaks
 
     newFileID func () fileID
-    fileIndex map[fileID]*File
-    filePaths map[string][]*File
+    fileIndex *fileIndex
 
     newZoneID func () zoneID
-    zoneIndex map[zoneID]*Zone
-    zoneFiles map[fileID][]*Zone
-    zoneNames map[string][]*Zone
+    zoneIndex *zoneIndex
 
     newRecordID func () recordID
-    recordIndex map[recordID]*Record
-    recordZones map[zoneID][]*Record
-    recordAddresses map[string][]*Record
-    recordNames map[string][]*Record
+    recordIndex *recordIndex
 }
 
 var hosts *anchor
@@ -52,32 +47,41 @@ func initHosts() {
         lastFileID += 1
         return lastFileID
     }
-    hosts.fileIndex = make(map[fileID]*File)
-    hosts.filePaths = make(map[string][]*File)
+    hosts.fileIndex = new(fileIndex)
+    hosts.fileIndex.index = make(map[fileID]*File)
+    hosts.fileIndex.paths = make(map[string][]*File)
 
     lastZoneID := zoneID(0)
     hosts.newZoneID = func() zoneID {
         lastZoneID += 1
         return lastZoneID
     }
-    hosts.zoneIndex = make(map[zoneID]*Zone)
-    hosts.zoneFiles = make(map[fileID][]*Zone)
-    hosts.zoneNames = make(map[string][]*Zone)
+    hosts.zoneIndex = new(zoneIndex)
+    hosts.zoneIndex.index = make(map[zoneID]*Zone)
+    hosts.zoneIndex.files = make(map[fileID][]*Zone)
+    hosts.zoneIndex.names = make(map[string][]*Zone)
 
     lastRecordID := recordID(0)
     hosts.newRecordID = func() recordID {
         lastRecordID += 1
         return lastRecordID
     }
-    hosts.recordIndex = make(map[recordID]*Record)
-    hosts.recordZones = make(map[zoneID][]*Record)
-    hosts.recordAddresses = make(map[string][]*Record)
-    hosts.recordNames = make(map[string][]*Record)
+    hosts.recordIndex = new(recordIndex)
+    hosts.recordIndex.index = make(map[recordID]*Record)
+    hosts.recordIndex.zones = make(map[zoneID][]*Record)
+    hosts.recordIndex.addresses = make(map[string][]*Record)
+    hosts.recordIndex.names = make(map[string][]*Record)
 }
 
 // -----------------------------------------------------------------------------
 
 type fileID int
+
+type fileIndex struct {
+    sync.RWMutex
+    index map[fileID]*File
+    paths map[string][]*File
+}
 
 func lookupFile(fQuery *File) (f *File) {
     if fQuery.id != 0 {
@@ -85,7 +89,10 @@ func lookupFile(fQuery *File) (f *File) {
     }
 
     if fQuery.ID != 0 {
-        f := hosts.fileIndex[fileID(fQuery.ID)]
+        hosts.fileIndex.RLock()
+        f := hosts.fileIndex.index[fileID(fQuery.ID)]
+        hosts.fileIndex.RUnlock()
+
         if f == nil {
             return nil
         }
@@ -99,7 +106,9 @@ func lookupFile(fQuery *File) (f *File) {
     }
 
     if fQuery.Path != "" {
-        fs := hosts.filePaths[fQuery.Path]
+        hosts.fileIndex.RLock()
+        fs := hosts.fileIndex.paths[fQuery.Path]
+        hosts.fileIndex.RUnlock()
 
         if len(fs) != 1 {
             // if more than 1 valid record, 'get' cannot decide which one to return
@@ -121,8 +130,10 @@ func addFile(f *File) {
     id := hosts.newFileID()
     path := f.Path
 
-    hosts.fileIndex[id] = f
-    hosts.filePaths[path] = append(hosts.filePaths[path], f)
+    hosts.fileIndex.Lock()
+    hosts.fileIndex.index[id] = f
+    hosts.fileIndex.paths[path] = append(hosts.fileIndex.paths[path], f)
+    hosts.fileIndex.Unlock()
 
     f.ID = int(id)
     f.id = id
@@ -139,8 +150,10 @@ func removeFile(f *File) {
     id := f.id
     path := f.Path
 
-    delete(hosts.fileIndex, id)
-    hosts.filePaths[path] = deleteFromSliceOfFiles(hosts.filePaths[path], f)
+    hosts.fileIndex.Lock()
+    delete(hosts.fileIndex.index, id)
+    hosts.fileIndex.paths[path] = deleteFromSliceOfFiles(hosts.fileIndex.paths[path], f)
+    hosts.fileIndex.Unlock()
 
     f.ID = 0
     f.id = fileID(0)
@@ -169,13 +182,23 @@ func deleteFromSliceOfFiles(fs []*File, f *File) []*File {
 
 type zoneID int
 
+type zoneIndex struct {
+    sync.RWMutex
+    index map[zoneID]*Zone
+    files map[fileID][]*Zone
+    names map[string][]*Zone
+}
+
 func lookupZone(zQuery *Zone) (z *Zone) {
     if zQuery.id != 0 {
         return zQuery
     }
 
     if zQuery.ID != 0 {
-        z := hosts.zoneIndex[zoneID(zQuery.ID)]
+        hosts.zoneIndex.RLock()
+        z := hosts.zoneIndex.index[zoneID(zQuery.ID)]
+        hosts.zoneIndex.RUnlock()
+
         if z == nil {
             return nil
         }
@@ -192,7 +215,9 @@ func lookupZone(zQuery *Zone) (z *Zone) {
     }
 
     if zQuery.Name != "" {
-        zs := hosts.zoneNames[zQuery.Name]
+        hosts.zoneIndex.RLock()
+        zs := hosts.zoneIndex.names[zQuery.Name]
+        hosts.zoneIndex.RUnlock()
         if len(zs) == 0 {
             return nil
         }
@@ -222,7 +247,9 @@ func lookupZone(zQuery *Zone) (z *Zone) {
     }
 
     if zQuery.File != 0 {
-        zs := hosts.zoneFiles[fileID(zQuery.File)]
+        hosts.zoneIndex.RLock()
+        zs := hosts.zoneIndex.files[fileID(zQuery.File)]
+        hosts.zoneIndex.RUnlock()
 
         if len(zs) != 1 {
             // if more than 1 valid zone, 'get' cannot decide which one to return
@@ -245,9 +272,11 @@ func addZone(z *Zone) {
     file := fileID(z.File)
     name := z.Name
 
-    hosts.zoneIndex[id] = z
-    hosts.zoneFiles[file] = append(hosts.zoneFiles[file], z)
-    hosts.zoneNames[name] = append(hosts.zoneNames[name], z)
+    hosts.zoneIndex.Lock()
+    hosts.zoneIndex.index[id] = z
+    hosts.zoneIndex.files[file] = append(hosts.zoneIndex.files[file], z)
+    hosts.zoneIndex.names[name] = append(hosts.zoneIndex.names[name], z)
+    hosts.zoneIndex.Unlock()
 
     z.ID = int(id)
     z.id = id
@@ -265,9 +294,11 @@ func removeZone(z *Zone) {
     file := fileID(z.File)
     name := z.Name
 
-    delete(hosts.zoneIndex, id)
-    hosts.zoneFiles[file] = deleteFromSliceOfZones(hosts.zoneFiles[file], z)
-    hosts.zoneNames[name] = deleteFromSliceOfZones(hosts.zoneNames[name], z)
+    hosts.zoneIndex.Lock()
+    delete(hosts.zoneIndex.index, id)
+    hosts.zoneIndex.files[file] = deleteFromSliceOfZones(hosts.zoneIndex.files[file], z)
+    hosts.zoneIndex.names[name] = deleteFromSliceOfZones(hosts.zoneIndex.names[name], z)
+    hosts.zoneIndex.Unlock()
 
     z.ID = 0
     z.id = zoneID(0)
@@ -295,13 +326,24 @@ func deleteFromSliceOfZones(zs []*Zone, z *Zone) []*Zone {
 
 type recordID int
 
+type recordIndex struct {
+    sync.RWMutex
+    index map[recordID]*Record
+    zones map[zoneID][]*Record
+    addresses map[string][]*Record
+    names map[string][]*Record
+}
+
 func lookupRecord(rQuery *Record) (r *Record) {
     if rQuery.id != 0 {
         return rQuery
     }
 
     if rQuery.ID != 0 {
-        r := hosts.recordIndex[recordID(rQuery.ID)]
+        hosts.recordIndex.RLock()
+        r := hosts.recordIndex.index[recordID(rQuery.ID)]
+        hosts.recordIndex.RUnlock()
+
         if r == nil {
             return nil
         }
@@ -338,7 +380,10 @@ func lookupRecord(rQuery *Record) (r *Record) {
     }
 
     if len(rQuery.Names) > 0 {
-        rs := hosts.recordNames[rQuery.Names[0]]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.names[rQuery.Names[0]]
+        hosts.recordIndex.RUnlock()
+
         if len(rs) == 0 {
             return nil
         }
@@ -412,7 +457,10 @@ func lookupRecord(rQuery *Record) (r *Record) {
     }
 
     if rQuery.Address != "" {
-        rs := hosts.recordAddresses[rQuery.Address]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.addresses[rQuery.Address]
+        hosts.recordIndex.RUnlock()
+
         if len(rs) == 0 {
             return nil
         }
@@ -442,7 +490,9 @@ func lookupRecord(rQuery *Record) (r *Record) {
     }
 
     if rQuery.Zone != 0 {
-        rs := hosts.recordZones[zoneID(rQuery.Zone)]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.zones[zoneID(rQuery.Zone)]
+        hosts.recordIndex.RUnlock()
 
         if len(rs) != 1 {
             // if more than 1 valid record, 'get' cannot decide which one to return
@@ -466,12 +516,14 @@ func addRecord(r *Record) {
     address := r.Address
     names := r.Names
 
-    hosts.recordIndex[id] = r
-    hosts.recordZones[zone] = append(hosts.recordZones[zone], r)
-    hosts.recordAddresses[address] = append(hosts.recordAddresses[address], r)
+    hosts.recordIndex.Lock()
+    hosts.recordIndex.index[id] = r
+    hosts.recordIndex.zones[zone] = append(hosts.recordIndex.zones[zone], r)
+    hosts.recordIndex.addresses[address] = append(hosts.recordIndex.addresses[address], r)
     for _, n := range names {
-        hosts.recordNames[n] = append(hosts.recordNames[n], r)
+        hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r)
     }
+    hosts.recordIndex.Unlock()
 
     r.ID = int(id)
     r.id = id
@@ -490,12 +542,14 @@ func removeRecord(r *Record) {
     address := r.Address
     names := r.Names
 
-    delete(hosts.recordIndex, id)
-    hosts.recordZones[zone] = deleteFromSliceOfRecords(hosts.recordZones[zone], r)
-    hosts.recordAddresses[address] = deleteFromSliceOfRecords(hosts.recordAddresses[address], r)
+    hosts.recordIndex.Lock()
+    delete(hosts.recordIndex.index, id)
+    hosts.recordIndex.zones[zone] = deleteFromSliceOfRecords(hosts.recordIndex.zones[zone], r)
+    hosts.recordIndex.addresses[address] = deleteFromSliceOfRecords(hosts.recordIndex.addresses[address], r)
     for _, n := range names {
-       hosts.recordNames[n] = deleteFromSliceOfRecords(hosts.recordNames[n], r)
+       hosts.recordIndex.names[n] = deleteFromSliceOfRecords(hosts.recordIndex.names[n], r)
     }
+    hosts.recordIndex.Unlock()
 
     r.ID = 0
     r.id = recordID(0)

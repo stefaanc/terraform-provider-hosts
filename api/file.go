@@ -185,16 +185,21 @@ func createFile(fValues *File) error {
 
         // read physical file, if it doesn't exist then create it
         data, err := ioutil.ReadFile(f.Path)
-        if err != nil {
+        if err == nil {
+            log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read physical file %d, path %q\n", f.ID, f.Path)
+        } else {
             if os.IsNotExist(err) {
                 data = []byte(nil)
                 err = ioutil.WriteFile(f.Path, data, 0644)
+                if err == nil {
+                    log.Printf("[INFO][terraform-provider-hosts/api/createFile()] created physical file %d, path %q\n", f.ID, f.Path)
+                }
             }
         }
         if err != nil {
             // restore consistent state
-            f.hostsFile = nil   // !!! avoid memory leaks
             removeFileObject(hostsFile)
+            f.hostsFile = nil   // !!! avoid memory leaks
             removeFile(f)
 
             return err
@@ -208,6 +213,7 @@ func createFile(fValues *File) error {
         _ = <-done
    }
 
+    log.Printf("[INFO][terraform-provider-hosts/api/createFile()] created file %d, path %q\n", f.ID, f.Path)
     return nil
 }
 
@@ -217,6 +223,7 @@ func readFile(f *File) (file *File, err error) {
     if err != nil {
         return nil, err
     }
+    log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read physical file %d, path %q\n", f.ID, f.Path)
 
     checksum := sha1.Sum(data)
     newChecksum := hex.EncodeToString(checksum[:])
@@ -231,6 +238,7 @@ func readFile(f *File) (file *File, err error) {
 
     // no computed fields
 
+    log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read file %d, path %q\n", f.ID, f.Path)
     return f, nil
 }
 
@@ -241,7 +249,7 @@ func updateFile(f *File, fValues *File) error {
     // update file
     f.Notes    = fValues.Notes
 
-    if fValues.hostsFile == nil {   // if requested by f.Update()
+    if fValues.hostsFile == nil || f == fValues {   // if requested by f.Update() or if forcing a render/write
         // render file to calculate new checksum
         done := goRenderFile(f)   // updates data & checksum
         _ = <-done
@@ -252,26 +260,28 @@ func updateFile(f *File, fValues *File) error {
             if err != nil {
                 // restore consistent state
                 f.Notes = notes
-                f.hostsFile.data = []byte(nil)
+                f.hostsFile.data     = []byte(nil)
                 f.hostsFile.checksum = oldChecksum
 
                 return err
             }
+            log.Printf("[INFO][terraform-provider-hosts/api/updateFile()] updated physical file %d, path %q\n", f.ID, f.Path)
         }
 
         // don't keep rendered data in memory
         f.hostsFile.data = []byte(nil)
     }
 
+    log.Printf("[INFO][terraform-provider-hosts/api/updateFile()] updated file %d, path %q\n", f.ID, f.Path)
     return nil
 }
 
 func deleteFile(f *File) error {
     // remove the zone from the file
     if f.hostsFile != nil {   // if requested by f.Delete()
+        removeFileObject(f.hostsFile)
         oldHostsFile := f.hostsFile   // save so we can restore if needed
         f.hostsFile = nil            // !!! avoid memory leaks
-        removeFileObject(f.hostsFile)
 
         if len(f.zones) == 0 {
             // delete physical file
@@ -283,10 +293,17 @@ func deleteFile(f *File) error {
 
                return err
             }
+            log.Printf("[INFO][terraform-provider-hosts/api/deleteFile()] deleted physical file %d, path %q\n", f.ID, f.Path)
         }
     }
 
+    // save for logging
+    id := f.ID
+    path := f.Path
+
     // remove and zero file object
+    removeFile(f)   // zeroes f.ID and f.id
+
     f.Path = ""
     f.Notes = ""
 
@@ -295,8 +312,7 @@ func deleteFile(f *File) error {
     }
     f.zones = []*zoneObject(nil)
 
-    removeFile(f)   // zeroes f.ID and f.id
-
+    log.Printf("[INFO][terraform-provider-hosts/api/deleteFile()] deleted file %d, path %q\n", id, path)
     return nil
 }
 
@@ -317,10 +333,12 @@ func goRenderFile(f *File) chan bool {
         zQuery.File = f.ID
         zQuery.Name = "external"
         z := lookupZone(zQuery)
-        for _, line := range z.fileZone.lines {
-            // update lines
-            _, _ = io.WriteString(w, line)   // error cannot happen
-            _, _ = io.WriteString(w, "\n")   // error cannot happen
+        if z != nil {
+            for _, line := range z.fileZone.lines {
+                // update lines
+                _, _ = io.WriteString(w, line)   // error cannot happen
+                _, _ = io.WriteString(w, "\n")   // error cannot happen
+            }
         }
 
         for _, zoneObject := range f.zones {
@@ -447,13 +465,6 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {
         }
         if err := scanner.Err(); err != nil {   // cannot happen at the moment - crash if code is modified
             // // scanner error
-            // if lines2 != linesExternal {
-            //     lines2 <- endZoneMarker   // insert an endZoneMarker
-            //     close(lines2)
-            // }
-            // close(linesExternal)
-            // done <- true
-            // return
             log.Fatal(err)
         }
 
@@ -470,6 +481,9 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {
         // wait for goScanLines() of the external zone to finish
         close(linesExternal)
         _ = <-doneExternal
+        if len(fileZoneExternal.lines) == 0 {
+            removeZoneObject(f, fileZoneExternal)
+        }
 
         // finish goScanZones()
         done <- true

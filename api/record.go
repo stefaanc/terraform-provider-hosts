@@ -257,8 +257,8 @@ func createRecord(rValues *Record) error {
         err := updateZone(z, z)
         if err != nil {
             // restore consistent state
-            r.zoneRecord = nil   // !!! avoid memory leaks
             removeRecordObject(z, zoneRecord)
+            r.zoneRecord = nil   // !!! avoid memory leaks
             removeRecord(r)
 
             return err
@@ -302,7 +302,7 @@ func updateRecord(r *Record, rValues *Record) error {
     r.Comment  = rValues.Comment
     r.Notes    = rValues.Notes
 
-    if rValues.zoneRecord == nil {   // if requested by r.Update()
+    if rValues.zoneRecord == nil || r == rValues {   // if requested by r.Update() or if forcing a render/write
         // render record to calculate new checksum
         renderRecord(r)   // updates lines & checksum
         
@@ -337,16 +337,11 @@ func deleteRecord(r *Record) error {
         zQuery.ID = r.Zone
         z := lookupZone(zQuery)
 
+        removeRecordObject(z, r.zoneRecord)
         oldZoneRecord := r.zoneRecord   // save so we can restore if needed
         r.zoneRecord = nil              // !!! avoid memory leaks
-        removeRecordObject(z, r.zoneRecord)
 
-        var err error
-        if len(z.records) > 0 {
-            err = updateZone(z, z)
-        } else {
-            err = deleteZone(z)
-        }
+        err := updateZone(z, z)
         if err != nil {
             // restore consistent state
             r.zoneRecord = oldZoneRecord   // !!! beware of memory leaks
@@ -357,6 +352,8 @@ func deleteRecord(r *Record) error {
     }
 
     // remove and zero record
+    removeRecord(r)   // zeroes r.ID and r.id
+
     r.Zone       = 0
     r.Address    = ""
     r.Names      = make([]string, 0)
@@ -364,8 +361,6 @@ func deleteRecord(r *Record) error {
     r.Notes      = ""
 
     r.managed    = false
-
-    removeRecord(r)   // zeroes r.ID and r.id
 
     return nil
 }

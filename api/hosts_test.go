@@ -59,14 +59,14 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ 2nd hosts.newFileID() ] expected: 2, actual: %d", fid)
             }
 
-            length := len(hosts.fileIndex)
+            length := len(hosts.fileIndex.index)
             if length != 0 {
-                t.Errorf("[ len(hosts.fileIndex) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.fileIndex.index) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.filePaths)
+            length = len(hosts.fileIndex.paths)
             if length != 0 {
-                t.Errorf("[ len(hosts.filePaths) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.fileIndex.paths) ] expected: 0, actual: %d", length)
             }
 
             // --------------------
@@ -81,19 +81,19 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ 2nd hosts.newZoneID() ] expected: 2, actual: %d", zid)
             }
 
-            length = len(hosts.zoneIndex)
+            length = len(hosts.zoneIndex.index)
             if length != 0 {
-                t.Errorf("[ len(hosts.zoneIndex) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.index) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.zoneFiles)
+            length = len(hosts.zoneIndex.files)
             if length != 0 {
-                t.Errorf("[ len(hosts.zoneFiles) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.files) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.zoneNames)
+            length = len(hosts.zoneIndex.names)
             if length != 0 {
-                t.Errorf("[ len(hosts.zoneNames) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.names) ] expected: 0, actual: %d", length)
             }
 
             // --------------------
@@ -108,24 +108,24 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ 2nd hosts.newRecordID() ] expected: 2, actual: %d", rid)
             }
 
-            length = len(hosts.recordIndex)
+            length = len(hosts.recordIndex.index)
             if length != 0 {
-                t.Errorf("[ len(hosts.recordIndex) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.index) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.recordZones)
+            length = len(hosts.recordIndex.zones)
             if length != 0 {
-                t.Errorf("[ len(hosts.recordZones) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.zones) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.recordAddresses)
+            length = len(hosts.recordIndex.addresses)
             if length != 0 {
-                t.Errorf("[ len(hosts.recordAddresses) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.addresses) ] expected: 0, actual: %d", length)
             }
 
-            length = len(hosts.recordNames)
+            length = len(hosts.recordIndex.names)
             if length != 0 {
-                t.Errorf("[ len(hosts.recordNames) ] expected: 0, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.names) ] expected: 0, actual: %d", length)
             }
         }
     })
@@ -143,21 +143,21 @@ func Test_Init(t *testing.T) {
 
         f := new(File)
         fid := hosts.newFileID()
-        hosts.fileIndex[fid] = f
-        hosts.filePaths["p"] = append(hosts.filePaths["p"], f)
+        hosts.fileIndex.index[fid] = f
+        hosts.fileIndex.paths["p"] = append(hosts.fileIndex.paths["p"], f)
 
         z := new(Zone)
         zid := hosts.newZoneID()
-        hosts.zoneIndex[zid] = z
-        hosts.zoneFiles[fid] = append(hosts.zoneFiles[fid], z)
-        hosts.zoneNames["n"] = append(hosts.zoneNames["n"], z)
+        hosts.zoneIndex.index[zid] = z
+        hosts.zoneIndex.files[fid] = append(hosts.zoneIndex.files[fid], z)
+        hosts.zoneIndex.names["n"] = append(hosts.zoneIndex.names["n"], z)
 
         r := new(Record)
         rid := hosts.newRecordID()
-        hosts.recordIndex[rid] = r
-        hosts.recordZones[zid] = append(hosts.recordZones[zid], r)
-        hosts.recordAddresses["a"] = append(hosts.recordAddresses["a"], r)
-        hosts.recordNames["n"] = append(hosts.recordNames["n"], r)
+        hosts.recordIndex.index[rid] = r
+        hosts.recordIndex.zones[zid] = append(hosts.recordIndex.zones[zid], r)
+        hosts.recordIndex.addresses["a"] = append(hosts.recordIndex.addresses["a"], r)
+        hosts.recordIndex.names["n"] = append(hosts.recordIndex.names["n"], r)
 
         // --------------------
 
@@ -176,14 +176,14 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ hosts.newFileID() ] expected: 2, actual: %d", fid)
             }
 
-            length := len(hosts.fileIndex)
+            length := len(hosts.fileIndex.index)
             if length != 1 {
-                t.Errorf("[ len(hosts.fileIndex) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.fileIndex.index) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.filePaths)
+            length = len(hosts.fileIndex.paths)
             if length != 1 {
-                t.Errorf("[ len(hosts.filePaths) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.fileIndex.paths) ] expected: 1, actual: %d", length)
             }
 
             // --------------------
@@ -193,19 +193,19 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ hosts.newZoneID() ] expected: 2, actual: %d", zid)
             }
 
-            length = len(hosts.zoneIndex)
+            length = len(hosts.zoneIndex.index)
             if length != 1 {
-                t.Errorf("[ len(hosts.zoneIndex) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.index) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.zoneFiles)
+            length = len(hosts.zoneIndex.files)
             if length != 1 {
-                t.Errorf("[ len(hosts.zoneFiles) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.files) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.zoneNames)
+            length = len(hosts.zoneIndex.names)
             if length != 1 {
-                t.Errorf("[ len(hosts.zoneNames) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.zoneIndex.names) ] expected: 1, actual: %d", length)
             }
 
             // --------------------
@@ -215,24 +215,24 @@ func Test_Init(t *testing.T) {
                 t.Errorf("[ hosts.newRecordID() ] expected: 2, actual: %d", rid)
             }
 
-            length = len(hosts.recordIndex)
+            length = len(hosts.recordIndex.index)
             if length != 1 {
-                t.Errorf("[ len(hosts.recordIndex) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.index) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.recordZones)
+            length = len(hosts.recordIndex.zones)
             if length != 1 {
-                t.Errorf("[ len(hosts.recordZones) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.zones) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.recordAddresses)
+            length = len(hosts.recordIndex.addresses)
             if length != 1 {
-                t.Errorf("[ len(hosts.recordAddresses) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.addresses) ] expected: 1, actual: %d", length)
             }
 
-            length = len(hosts.recordNames)
+            length = len(hosts.recordIndex.names)
             if length != 1 {
-                t.Errorf("[ len(hosts.recordNames) ] expected: 1, actual: %d", length)
+                t.Errorf("[ len(hosts.recordIndex.names) ] expected: 1, actual: %d", length)
             }
         }
     })
@@ -247,8 +247,8 @@ func Test_lookupFile(t *testing.T) {
         f = new(File)
         f.id = hosts.newFileID()
         f.Path = "p"
-        hosts.fileIndex[f.id] = f
-        hosts.filePaths[f.Path] = append(hosts.filePaths[f.Path], f)
+        hosts.fileIndex.index[f.id] = f
+        hosts.fileIndex.paths[f.Path] = append(hosts.fileIndex.paths[f.Path], f)
 
         return f
     }
@@ -257,14 +257,14 @@ func Test_lookupFile(t *testing.T) {
         f1 = new(File)
         f1.id = hosts.newFileID()
         f1.Path = "p"
-        hosts.fileIndex[f1.id] = f1
-        hosts.filePaths[f1.Path] = append(hosts.filePaths[f1.Path], f1)
+        hosts.fileIndex.index[f1.id] = f1
+        hosts.fileIndex.paths[f1.Path] = append(hosts.fileIndex.paths[f1.Path], f1)
 
         f2 = new(File)
         f2.id = hosts.newFileID()
         f2.Path = "p"
-        hosts.fileIndex[f2.id] = f2
-        hosts.filePaths[f2.Path] = append(hosts.filePaths[f2.Path], f2)
+        hosts.fileIndex.index[f2.id] = f2
+        hosts.fileIndex.paths[f2.Path] = append(hosts.fileIndex.paths[f2.Path], f2)
 
         return f1, f2
     }
@@ -841,9 +841,9 @@ func Test_lookupZone(t *testing.T) {
         z.id = hosts.newZoneID()
         z.File = int(fileID)
         z.Name = "z"
-        hosts.zoneIndex[z.id] = z
-        hosts.zoneFiles[fileID] = append(hosts.zoneFiles[fileID], z)
-        hosts.zoneNames[z.Name] = append(hosts.zoneNames[z.Name], z)
+        hosts.zoneIndex.index[z.id] = z
+        hosts.zoneIndex.files[fileID] = append(hosts.zoneIndex.files[fileID], z)
+        hosts.zoneIndex.names[z.Name] = append(hosts.zoneIndex.names[z.Name], z)
 
         return z
     }
@@ -855,17 +855,17 @@ func Test_lookupZone(t *testing.T) {
         z1.id = hosts.newZoneID()
         z1.File = int(fileID)
         z1.Name = "z1"
-        hosts.zoneIndex[z1.id] = z1
-        hosts.zoneFiles[fileID] = append(hosts.zoneFiles[fileID], z1)
-        hosts.zoneNames[z1.Name] = append(hosts.zoneNames[z1.Name], z1)
+        hosts.zoneIndex.index[z1.id] = z1
+        hosts.zoneIndex.files[fileID] = append(hosts.zoneIndex.files[fileID], z1)
+        hosts.zoneIndex.names[z1.Name] = append(hosts.zoneIndex.names[z1.Name], z1)
 
         z2 = new(Zone)
         z2.id = hosts.newZoneID()
         z2.File = int(fileID)
         z2.Name = "z2"
-        hosts.zoneIndex[z2.id] = z2
-        hosts.zoneFiles[fileID] = append(hosts.zoneFiles[fileID], z2)
-        hosts.zoneNames[z2.Name] = append(hosts.zoneNames[z2.Name], z2)
+        hosts.zoneIndex.index[z2.id] = z2
+        hosts.zoneIndex.files[fileID] = append(hosts.zoneIndex.files[fileID], z2)
+        hosts.zoneIndex.names[z2.Name] = append(hosts.zoneIndex.names[z2.Name], z2)
 
         return z1, z2
     }
@@ -878,17 +878,17 @@ func Test_lookupZone(t *testing.T) {
         z1.id = hosts.newZoneID()
         z1.File = int(fileID1)
         z1.Name = "z"
-        hosts.zoneIndex[z1.id] = z1
-        hosts.zoneFiles[fileID1] = append(hosts.zoneFiles[fileID1], z1)
-        hosts.zoneNames[z1.Name] = append(hosts.zoneNames[z1.Name], z1)
+        hosts.zoneIndex.index[z1.id] = z1
+        hosts.zoneIndex.files[fileID1] = append(hosts.zoneIndex.files[fileID1], z1)
+        hosts.zoneIndex.names[z1.Name] = append(hosts.zoneIndex.names[z1.Name], z1)
 
         z2 = new(Zone)
         z2.id = hosts.newZoneID()
         z2.File = int(fileID2)
         z2.Name = "z"
-        hosts.zoneIndex[z2.id] = z2
-        hosts.zoneFiles[fileID2] = append(hosts.zoneFiles[fileID2], z2)
-        hosts.zoneNames[z2.Name] = append(hosts.zoneNames[z2.Name], z2)
+        hosts.zoneIndex.index[z2.id] = z2
+        hosts.zoneIndex.files[fileID2] = append(hosts.zoneIndex.files[fileID2], z2)
+        hosts.zoneIndex.names[z2.Name] = append(hosts.zoneIndex.names[z2.Name], z2)
 
         return z1, z2
     }
@@ -1675,11 +1675,11 @@ func Test_lookupRecord(t *testing.T) {
         r.Zone = int(zoneID)
         r.Address = "a"
         r.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r.id] = r
-        hosts.recordZones[zoneID] = append(hosts.recordZones[zoneID], r)
-        hosts.recordAddresses[r.Address] = append(hosts.recordAddresses[r.Address], r)
+        hosts.recordIndex.index[r.id] = r
+        hosts.recordIndex.zones[zoneID] = append(hosts.recordIndex.zones[zoneID], r)
+        hosts.recordIndex.addresses[r.Address] = append(hosts.recordIndex.addresses[r.Address], r)
         for _, n := range r.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r)
         }
 
         return r
@@ -1693,11 +1693,11 @@ func Test_lookupRecord(t *testing.T) {
         r1.Zone = int(zoneID)
         r1.Address = "a1"
         r1.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r1.id] = r1
-        hosts.recordZones[zoneID] = append(hosts.recordZones[zoneID], r1)
-        hosts.recordAddresses[r1.Address] = append(hosts.recordAddresses[r1.Address], r1)
+        hosts.recordIndex.index[r1.id] = r1
+        hosts.recordIndex.zones[zoneID] = append(hosts.recordIndex.zones[zoneID], r1)
+        hosts.recordIndex.addresses[r1.Address] = append(hosts.recordIndex.addresses[r1.Address], r1)
         for _, n := range r1.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r1)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r1)
         }
 
         r2 = new(Record)
@@ -1705,11 +1705,11 @@ func Test_lookupRecord(t *testing.T) {
         r2.Zone = int(zoneID)
         r2.Address = "a2"
         r2.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r2.id] = r2
-        hosts.recordZones[zoneID] = append(hosts.recordZones[zoneID], r2)
-        hosts.recordAddresses[r2.Address] = append(hosts.recordAddresses[r2.Address], r2)
+        hosts.recordIndex.index[r2.id] = r2
+        hosts.recordIndex.zones[zoneID] = append(hosts.recordIndex.zones[zoneID], r2)
+        hosts.recordIndex.addresses[r2.Address] = append(hosts.recordIndex.addresses[r2.Address], r2)
         for _, n := range r2.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r2)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r2)
         }
 
         return r1, r2
@@ -1723,11 +1723,11 @@ func Test_lookupRecord(t *testing.T) {
         r1.Zone = int(zoneID)
         r1.Address = "a"
         r1.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r1.id] = r1
-        hosts.recordZones[zoneID] = append(hosts.recordZones[zoneID], r1)
-        hosts.recordAddresses[r1.Address] = append(hosts.recordAddresses[r1.Address], r1)
+        hosts.recordIndex.index[r1.id] = r1
+        hosts.recordIndex.zones[zoneID] = append(hosts.recordIndex.zones[zoneID], r1)
+        hosts.recordIndex.addresses[r1.Address] = append(hosts.recordIndex.addresses[r1.Address], r1)
         for _, n := range r1.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r1)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r1)
         }
 
         r2 = new(Record)
@@ -1735,11 +1735,11 @@ func Test_lookupRecord(t *testing.T) {
         r2.Zone = int(zoneID)
         r2.Address = "a"
         r2.Names = []string{ "n1", "n2", "n4" }
-        hosts.recordIndex[r2.id] = r2
-        hosts.recordZones[zoneID] = append(hosts.recordZones[zoneID], r2)
-        hosts.recordAddresses[r2.Address] = append(hosts.recordAddresses[r2.Address], r2)
+        hosts.recordIndex.index[r2.id] = r2
+        hosts.recordIndex.zones[zoneID] = append(hosts.recordIndex.zones[zoneID], r2)
+        hosts.recordIndex.addresses[r2.Address] = append(hosts.recordIndex.addresses[r2.Address], r2)
         for _, n := range r2.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r2)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r2)
         }
 
         return r1, r2
@@ -1754,11 +1754,11 @@ func Test_lookupRecord(t *testing.T) {
         r1.Zone = int(zoneID1)
         r1.Address = "a"
         r1.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r1.id] = r1
-        hosts.recordZones[zoneID1] = append(hosts.recordZones[zoneID1], r1)
-        hosts.recordAddresses[r1.Address] = append(hosts.recordAddresses[r1.Address], r1)
+        hosts.recordIndex.index[r1.id] = r1
+        hosts.recordIndex.zones[zoneID1] = append(hosts.recordIndex.zones[zoneID1], r1)
+        hosts.recordIndex.addresses[r1.Address] = append(hosts.recordIndex.addresses[r1.Address], r1)
         for _, n := range r1.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r1)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r1)
         }
 
         r2 = new(Record)
@@ -1766,11 +1766,11 @@ func Test_lookupRecord(t *testing.T) {
         r2.Zone = int(zoneID2)
         r2.Address = "a"
         r2.Names = []string{ "n1", "n2", "n3" }
-        hosts.recordIndex[r2.id] = r2
-        hosts.recordZones[zoneID2] = append(hosts.recordZones[zoneID2], r2)
-        hosts.recordAddresses[r2.Address] = append(hosts.recordAddresses[r2.Address], r2)
+        hosts.recordIndex.index[r2.id] = r2
+        hosts.recordIndex.zones[zoneID2] = append(hosts.recordIndex.zones[zoneID2], r2)
+        hosts.recordIndex.addresses[r2.Address] = append(hosts.recordIndex.addresses[r2.Address], r2)
         for _, n := range r2.Names {
-            hosts.recordNames[n] = append(hosts.recordNames[n], r2)
+            hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r2)
         }
 
         return r1, r2
