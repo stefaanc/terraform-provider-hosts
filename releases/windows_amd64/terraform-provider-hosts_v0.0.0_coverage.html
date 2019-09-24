@@ -54,13 +54,13 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/stefaanc/terraform-provider-hosts/api/file.go (94.0%)</option>
+				<option value="file0">github.com/stefaanc/terraform-provider-hosts/api/file.go (99.6%)</option>
 				
 				<option value="file1">github.com/stefaanc/terraform-provider-hosts/api/hosts.go (100.0%)</option>
 				
-				<option value="file2">github.com/stefaanc/terraform-provider-hosts/api/record.go (61.8%)</option>
+				<option value="file2">github.com/stefaanc/terraform-provider-hosts/api/record.go (100.0%)</option>
 				
-				<option value="file3">github.com/stefaanc/terraform-provider-hosts/api/zone.go (69.4%)</option>
+				<option value="file3">github.com/stefaanc/terraform-provider-hosts/api/zone.go (100.0%)</option>
 				
 				</select>
 			</div>
@@ -100,14 +100,15 @@ import (
 
 type File struct {
     // readOnly
-    ID       int      // indexed   // read-write in a fQuery
+    ID        int      // indexed   // read-write in a fQuery
     // read-writeOnce
-    Path     string   // indexed   // read-write in a fQuery
+    Path      string   // indexed
     // read-writeMany
-    Notes    string
+    Notes     string
     // private
-    id       fileID
-    checksum string
+    id        fileID
+    hostsFile *fileObject
+    zones     []*zoneObject   // !!! beware of memory leaks
 }
 
 func LookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
@@ -157,6 +158,7 @@ func (f *File) Read() (file *File, err error) <span class="cov8" title="1">{
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/f.Read()] file not found")
     }</span>
 
+    // read file
     <span class="cov8" title="1">fPrivate, err = readFile(fPrivate)
     if err != nil </span><span class="cov8" title="1">{
         return nil, err
@@ -244,28 +246,50 @@ func createFile(fValues *File) error <span class="cov8" title="1">{
     f.Path = fValues.Path
     f.Notes = fValues.Notes
 
+    f.hostsFile = fValues.hostsFile  // requested by goScanFile()
+    // f.zones                       // filled by goScanFile()
+
     addFile(f)   // adds f.ID and f.id
 
-    // read physical file, if it doesn't exist then create it
-    data, err := ioutil.ReadFile(f.Path)
-    if err != nil </span><span class="cov8" title="1">{
-        if os.IsNotExist(err) </span><span class="cov8" title="1">{
-            data = []byte(nil)
-            err = ioutil.WriteFile(f.Path, data, 0644)
-        }</span>
+    if fValues.hostsFile == nil </span><span class="cov8" title="1">{   // if requested by CreateFile()
+        // add the file to the hosts
+        hostsFile := new(fileObject)
+        hostsFile.file = f      // !!! beware of memory leaks
+        f.hostsFile = hostsFile // !!! beware of memory leaks
 
+        addFileObject(hostsFile)
+
+        // read physical file, if it doesn't exist then create it
+        data, err := ioutil.ReadFile(f.Path)
+        if err == nil </span><span class="cov8" title="1">{
+            log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read physical file %d, path %q\n", f.ID, f.Path)
+        }</span> else<span class="cov8" title="1"> {
+            if os.IsNotExist(err) </span><span class="cov8" title="1">{
+                data = []byte(nil)
+                err = ioutil.WriteFile(f.Path, data, 0644)
+                if err == nil </span><span class="cov8" title="1">{
+                    log.Printf("[INFO][terraform-provider-hosts/api/createFile()] created physical file %d, path %q\n", f.ID, f.Path)
+                }</span>
+            }
+        }
         <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+            // restore consistent state
+            removeFileObject(hostsFile)
+            f.hostsFile = nil   // !!! avoid memory leaks
             removeFile(f)
+
             return err
         }</span>
-    }
-    <span class="cov8" title="1">checksum := sha1.Sum(data)
-    f.checksum = hex.EncodeToString(checksum[:])
 
-    // process data
-    done := goScanZones(f, bytes.NewReader(data))
-    _ = &lt;-done
+        <span class="cov8" title="1">checksum := sha1.Sum(data)
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
 
+        // process data
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
+        _ = &lt;-done</span>
+   }
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/createFile()] created file %d, path %q\n", f.ID, f.Path)
     return nil</span>
 }
 
@@ -275,137 +299,269 @@ func readFile(f *File) (file *File, err error) <span class="cov8" title="1">{
     if err != nil </span><span class="cov8" title="1">{
         return nil, err
     }</span>
-
-    <span class="cov8" title="1">checksum := sha1.Sum(data)
-    newChecksum := hex.EncodeToString(checksum[:])
-
-    if f.checksum != newChecksum </span><span class="cov8" title="1">{
-        // process data
-        b := bytes.NewBuffer(data)
-        done := goScanZones(f, io.Reader(b))
-        _ = &lt;-done
-
-        f.checksum = newChecksum
-    }</span>
-
-    <span class="cov8" title="1">return f, nil</span>
-}
-
-func updateFile(f *File, fValues *File) error <span class="cov8" title="1">{
-    // collect data
-    b := bytes.NewBuffer([]byte(nil))
-    done := goRenderZones(f, io.Writer(b))
-    _ = &lt;-done
-    data := b.Bytes()
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read physical file %d, path %q\n", f.ID, f.Path)
 
     checksum := sha1.Sum(data)
     newChecksum := hex.EncodeToString(checksum[:])
 
-    if f.checksum !=  newChecksum </span><span class="cov8" title="1">{
-        // write physical file
-        err := ioutil.WriteFile(f.Path, data, 0644)
-        if err != nil </span><span class="cov8" title="1">{
-            return err
-        }</span>
+    if f.hostsFile.checksum != newChecksum </span><span class="cov8" title="1">{
+        f.hostsFile.checksum = newChecksum
 
-        <span class="cov8" title="1">f.checksum = newChecksum</span>
+        // process data
+        done := goScanFile(f.hostsFile, bytes.NewReader(data))
+        _ = &lt;-done
+    }</span>
+
+    // no computed fields
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/readFile()] read file %d, path %q\n", f.ID, f.Path)
+    return f, nil</span>
+}
+
+func updateFile(f *File, fValues *File) error <span class="cov8" title="1">{
+    notes   := f.Notes     // save so we can restore if needed
+    oldChecksum := f.hostsFile.checksum   // save to compare old with new
+
+    // update file
+    f.Notes    = fValues.Notes
+
+    if fValues.hostsFile == nil || f == fValues </span><span class="cov8" title="1">{   // if requested by f.Update() or if forcing a render/write
+        // render file to calculate new checksum
+        done := goRenderFile(f)   // updates data &amp; checksum
+        _ = &lt;-done
+        
+        if f.hostsFile.checksum != oldChecksum </span><span class="cov8" title="1">{
+            // update physical file
+            err := ioutil.WriteFile(f.Path, f.hostsFile.data, 0644)
+            if err != nil </span><span class="cov8" title="1">{
+                // restore consistent state
+                f.Notes = notes
+                f.hostsFile.data     = []byte(nil)
+                f.hostsFile.checksum = oldChecksum
+
+                return err
+            }</span>
+            <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/updateFile()] updated physical file %d, path %q\n", f.ID, f.Path)</span>
+        }
+
+        // don't keep rendered data in memory
+        <span class="cov8" title="1">f.hostsFile.data = []byte(nil)</span>
     }
 
-    <span class="cov8" title="1">return nil</span>
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/updateFile()] updated file %d, path %q\n", f.ID, f.Path)
+    return nil</span>
 }
 
 func deleteFile(f *File) error <span class="cov8" title="1">{
+    // remove the zone from the file
+    if f.hostsFile != nil </span><span class="cov8" title="1">{   // if requested by f.Delete()
+        removeFileObject(f.hostsFile)
+        oldHostsFile := f.hostsFile   // save so we can restore if needed
+        f.hostsFile = nil            // !!! avoid memory leaks
+
+        if len(f.zones) == 0 </span><span class="cov8" title="1">{
+            // delete physical file
+            err := os.Remove(f.Path)
+            if err != nil </span><span class="cov8" title="1">{
+               // restore consistent state
+               f.hostsFile = oldHostsFile   // !!! beware of memory leaks
+               addFileObject(f.hostsFile)
+
+               return err
+            }</span>
+            <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/deleteFile()] deleted physical file %d, path %q\n", f.ID, f.Path)</span>
+        }
+    }
+
+    // save for logging
+    <span class="cov8" title="1">id := f.ID
     path := f.Path
 
     // remove and zero file object
+    removeFile(f)   // zeroes f.ID and f.id
+
     f.Path = ""
     f.Notes = ""
 
-    f.checksum = ""
+    for _, zoneObject := range f.zones </span><span class="cov8" title="1">{   // !!! avoid memory leaks
+        zoneObject.zone = nil
+    }</span>
+    <span class="cov8" title="1">f.zones = []*zoneObject(nil)
 
-    removeFile(f)   // zeroes f.ID and f.id
-
-    if len(hosts.zoneIndex) == 0 </span><span class="cov8" title="1">{
-        // delete physical file
-        err := os.Remove(path)
-        if err != nil </span><span class="cov8" title="1">{
-            return err
-        }</span>
-    }
-
-    <span class="cov8" title="1">return nil</span>
+    log.Printf("[INFO][terraform-provider-hosts/api/deleteFile()] deleted file %d, path %q\n", id, path)
+    return nil</span>
 }
 
 // -----------------------------------------------------------------------------
 
-var startMarker string = "##### Start Of Terraform Zone: "
-var endMarker string   = "##### End Of Terraform Zone: "
-
-// -----------------------------------------------------------------------------
-
-func goRenderZones(f *File, w io.Writer) chan bool <span class="cov8" title="1">{
+func goRenderFile(f *File) chan bool <span class="cov8" title="1">{
     done := make(chan bool)
 
     go func() </span><span class="cov8" title="1">{
         defer close(done)
 
-        // Remark:
-        // io.WriteString error cannot happen with the current implementation of updateFile
-        // this would need an io.Writer writing to file instead of to buffer
-        // we leave this for later development
-        // for now we throw a fatal error in case my assumptions are/become wrong
+        // render bytes
+        rendered := bytes.NewBuffer([]byte(nil))
+        w := io.Writer(rendered)
 
         // render lines for the default external zone
         zQuery := new(Zone)
         zQuery.File = f.ID
         zQuery.Name = "external"
         z := lookupZone(zQuery)
-
-        lines := goRenderLines(z)
-        for line := range lines </span><span class="cov8" title="1">{
-            _, err := io.WriteString(w, line + "\n")
-            if err != nil </span><span class="cov0" title="0">{   // cannot happen
-                log.Fatal(err)
-                // done &lt;- true
-                // return
+        if z != nil </span><span class="cov8" title="1">{
+            for _, line := range z.fileZone.lines </span><span class="cov8" title="1">{
+                // update lines
+                _, _ = io.WriteString(w, line)   // error cannot happen
+                _, _ = io.WriteString(w, "\n")   // error cannot happen
             }</span>
         }
 
-        <span class="cov8" title="1">for _, zone := range hosts.zoneFiles[f.id] </span><span class="cov8" title="1">{
-            if zone.Name == "external" </span><span class="cov8" title="1">{
+        <span class="cov8" title="1">for _, zoneObject := range f.zones </span><span class="cov8" title="1">{
+            if zoneObject.zone.Name == "external" </span><span class="cov8" title="1">{
                 continue</span>
             }
 
-            <span class="cov8" title="1">line := startMarker + zone.Name + " "
-            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
-            _, err := io.WriteString(w, line)
-            if err != nil </span><span class="cov0" title="0">{   // cannot happen
-                log.Fatal(err)
-                // done &lt;- true
-                // return
-            }</span>
-
-            <span class="cov8" title="1">lines := goRenderLines(zone)
-            for line := range lines </span><span class="cov8" title="1">{
-                _, err = io.WriteString(w, line + "\n")
-                if err != nil </span><span class="cov0" title="0">{   // cannot happen
-                    log.Fatal(err)
-                    // done &lt;- true
-                    // return
-                }</span>
-            }
-
-            <span class="cov8" title="1">line = endMarker + zone.Name + " "
-            line = line + strings.Repeat("#", 80 - len(line)) + "\n"
-            _, err = io.WriteString(w, line)
-            if err != nil </span><span class="cov0" title="0">{   // cannot happen
-                log.Fatal(err)
-                // done &lt;- true
-                // return
+            <span class="cov8" title="1">for _, line := range zoneObject.lines </span><span class="cov8" title="1">{
+                // update lines
+                _, _ = io.WriteString(w, line)   // error cannot happen
+                _, _ = io.WriteString(w, "\n")   // error cannot happen
             }</span>
         }
 
+        // calculate checksum for the lines
+        <span class="cov8" title="1">data := rendered.Bytes()
+        checksum := sha1.Sum(data)
+
+        // update zoneObject
+        f.hostsFile.data = data
+        f.hostsFile.checksum = hex.EncodeToString(checksum[:])
+
         // finish goRenderZones()
+        done &lt;- true
+        return</span>
+    }()
+
+    <span class="cov8" title="1">return done</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanFile(hostsFile *fileObject, r io.Reader) chan bool <span class="cov8" title="1">{
+    done := make(chan bool)
+
+    go func() </span><span class="cov8" title="1">{
+        defer close(done)
+
+        f := hostsFile.file
+
+        // keep the old slice of zoneObjects to cleanup old zones that aren't replaced
+        oldZones := f.zones
+
+        // update file with new slice of zoneObjects
+        f.zones = make([]*zoneObject, 0)
+
+        defer func() </span><span class="cov8" title="1">{
+            // cleanup zones that aren't replaced
+            for _, fileZone := range oldZones </span><span class="cov8" title="1">{
+                z := fileZone.zone
+                if z.fileZone == fileZone </span><span class="cov8" title="1">{   // if zone was deleted from the read file, fileZone was not replaced
+                    // delete zone object
+                    z.fileZone = nil   // !!! avoid memory leaks
+                    _ = deleteZone(z)   // error cannot happen
+                }</span>
+            }
+        }()
+
+        // create 'external' zoneObject
+        <span class="cov8" title="1">fileZone := new(zoneObject)
+        addZoneObject(f, fileZone)
+
+        lines2 := make(chan string)
+        done2  := goScanZone(f, fileZone, lines2)
+
+        // save this channel for later use
+        fileZoneExternal := fileZone
+        linesExternal := lines2
+        doneExternal := done2
+
+        // start scanning
+        scanner := bufio.NewScanner(r)
+        for scanner.Scan() </span><span class="cov8" title="1">{
+            line := scanner.Text()
+
+            // create new zoneObject when startZoneMarker
+            // complete old zoneObject if not external
+            if strings.HasPrefix(line, startZoneMarker) </span><span class="cov8" title="1">{
+                // line is a marker for the start of new zone
+                if lines2 != linesExternal </span><span class="cov8" title="1">{
+                    // unexpected startZoneMarker, probably an endZoneMarker missing =&gt; silently ignore
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] unexpected start-of-zone marker - missing end-of-zone marker: \n&gt; %q", line)
+
+                    // wait for goScanZone() of the current zone to finish
+                    lines2 &lt;- endZoneMarker   // insert an endZoneMarker
+                    close(lines2)
+                    _ = &lt;-done2
+                }</span>
+
+                // create new zone
+                <span class="cov8" title="1">fileZone = new(zoneObject)
+                addZoneObject(f, fileZone)
+
+                lines2 = make(chan string)
+                done2 = goScanZone(f, fileZone, lines2)</span>
+            }
+
+            // complete old zoneObject if not external
+            <span class="cov8" title="1">if strings.HasPrefix(line, endZoneMarker) </span><span class="cov8" title="1">{
+                // line is a marker for the end of current zone
+                if lines2 == linesExternal </span><span class="cov8" title="1">{
+                    // unexpected endZoneMarker, probably a startZoneMarker missing =&gt; silently ignore
+                    // all records from the zone with missing startZoneMarker will be in the external zone
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] unexpected end-of-zone marker, skipping line: \n&gt; %q", line)
+                    continue</span>
+                }
+
+                // wait for goScanZone() of the current zone to finish
+                <span class="cov8" title="1">fileZone.lines = append(fileZone.lines, line)
+                lines2 &lt;- line
+                close(lines2)
+                _ = &lt;-done2
+
+                // back to external zone
+                fileZone = fileZoneExternal
+                lines2 = linesExternal
+                done2 = doneExternal
+
+                continue</span>
+            }
+
+            <span class="cov8" title="1">fileZone.lines = append(fileZone.lines, line)
+            lines2 &lt;- line</span>
+        }
+        <span class="cov8" title="1">if err := scanner.Err(); err != nil </span><span class="cov0" title="0">{   // cannot happen at the moment - crash if code is modified
+            // scanner error
+            log.Fatal(err)
+        }</span>
+
+        <span class="cov8" title="1">if lines2 != linesExternal </span><span class="cov8" title="1">{
+            // endZoneMarker missing =&gt; silently ignore
+            log.Printf("[WARNING][terraform-provider-hosts/api/goScanFile()] missing end-of-zone marker")
+
+            // wait for goScanZone() of the current zone to finish
+            lines2 &lt;- endZoneMarker   // insert an endZoneMarker
+            close(lines2)
+            _ = &lt;-done2
+        }</span>
+
+        // wait for goScanLines() of the external zone to finish
+        <span class="cov8" title="1">close(linesExternal)
+        _ = &lt;-doneExternal
+        if len(fileZoneExternal.lines) == 0 </span><span class="cov8" title="1">{
+            removeZoneObject(f, fileZoneExternal)
+        }</span>
+
+        // finish goScanZones()
         <span class="cov8" title="1">done &lt;- true
         return</span>
     }()
@@ -415,117 +571,36 @@ func goRenderZones(f *File, w io.Writer) chan bool <span class="cov8" title="1">
 
 // -----------------------------------------------------------------------------
 
-func goScanZones(f *File, r io.Reader) chan bool <span class="cov8" title="1">{
-    done := make(chan bool)
+type zoneObject struct {
+    lines    []string
+    checksum string
+    zone  *Zone   // !!! beware of memory leaks
+}
 
-    go func() </span><span class="cov8" title="1">{
-        defer close(done)
+func addZoneObject(f *File, z *zoneObject) <span class="cov8" title="1">{
+    f.zones = append(f.zones, z)
+    return
+}</span>
 
-        // Remark:
-        // Scanner error cannot happen with the current implementation of createFile/readFile
-        // this would need an io.Reader reading from file instead of from buffer
-        // we leave this for later development
-        // for now we throw a fatal error in case my assumptions are/become wrong
+func removeZoneObject(f *File, z *zoneObject) <span class="cov8" title="1">{
+    f.zones = deleteFromSliceOfZoneObjects(f.zones, z)
+    return
+}</span>
 
-        // create the default external zone
-        zone := "external"
+func deleteFromSliceOfZoneObjects(zs []*zoneObject, z *zoneObject) []*zoneObject <span class="cov8" title="1">{
+    if len(zs) == 0 </span><span class="cov8" title="1">{
+        return []*zoneObject(nil)   // always return a copy
+    }</span>
 
-        zValues := new(Zone)
-        zValues.File = f.ID
-        zValues.Name = zone
-        err := createZone(zValues)
-        if err != nil </span><span class="cov0" title="0">{   // cannot happen
-            log.Fatal(err)
-            //done &lt;- true
-            //return
-        }</span>
-        <span class="cov8" title="1">z := lookupZone(zValues)
-
-        // create a channel to the external zone
-        lines := make(chan string)
-        done2 := goScanLines(z, lines)
-
-        // save this channel for later use
-        linesExternal := lines
-        doneExternal := done2
-
-        // start scanning
-        scanner := bufio.NewScanner(r)
-        for scanner.Scan() </span><span class="cov8" title="1">{
-            line := scanner.Text()
-
-            // scan line
-            if lines == linesExternal </span><span class="cov8" title="1">{
-                if strings.HasPrefix(line, startMarker) </span><span class="cov8" title="1">{
-                    // line is a marker for the start of new zone
-                    // create new zone
-                    zone = strings.Trim(line[len(startMarker):], " #")
-
-                    zValues = new(Zone)
-                    zValues.File = f.ID
-                    zValues.Name = zone
-                    err = createZone(zValues)
-                    if err != nil </span><span class="cov0" title="0">{   // cannot happen
-                        close(lines)
-                        log.Fatal(err)
-                        //done &lt;- true
-                        //return
-                    }</span>
-                    <span class="cov8" title="1">z := lookupZone(zValues)
-
-                    // create a channel to the new zone
-                    lines = make(chan string)
-                    done2 = goScanLines(z, lines)
-
-                    continue</span>
-                } 
-            } else<span class="cov8" title="1"> {
-                if strings.HasPrefix(line, endMarker + zone) </span><span class="cov8" title="1">{
-                    // line is a marker for the end of current zone
-                    // wait for goScanLines() of the current zone to finish
-                    close(lines)
-                    _ = &lt;-done2
-
-                    // back to external zone
-                    zone = "external"
-                    lines = linesExternal
-                    done2 = doneExternal
-
-                    continue</span>
-                }
-            }
-
-            // line is not a marker =&gt; send to scanLines(z) it
-            <span class="cov8" title="1">lines &lt;- line</span>
+    <span class="cov8" title="1">newZoneObjects := make([]*zoneObject, 0, len(zs) - 1)
+    for _, zoneObject := range zs </span><span class="cov8" title="1">{
+        if z == zoneObject </span><span class="cov8" title="1">{
+            continue</span>
         }
-        <span class="cov8" title="1">if err := scanner.Err(); err != nil </span><span class="cov0" title="0">{   // cannot happen
-            // scanner error
-            if lines != linesExternal </span><span class="cov0" title="0">{
-                close(lines)
-            }</span>
-            <span class="cov0" title="0">close(linesExternal)
-            log.Fatal(err)</span>
-            //done &lt;- true
-            //return
-        }
+        <span class="cov8" title="1">newZoneObjects = append(newZoneObjects, zoneObject)</span>
+    }
 
-        <span class="cov8" title="1">if lines != linesExternal </span><span class="cov8" title="1">{
-            // missing end-marker for current zone =&gt; silently ignore
-            // wait for goScanLines(z) of the current zone to finish
-            close(lines)
-            _ = &lt;-done2
-        }</span>
-
-        // wait for goScanLines(z) of the external zone to finish
-        <span class="cov8" title="1">close(linesExternal)
-        _ = &lt;-doneExternal
-
-        // finish goScanZones()
-        done &lt;- true
-        return</span>
-    }()
-
-    <span class="cov8" title="1">return done</span>
+    <span class="cov8" title="1">return newZoneObjects</span>
 }
 </pre>
 		
@@ -538,6 +613,7 @@ func goScanZones(f *File, r io.Reader) chan bool <span class="cov8" title="1">{
 package api
 
 import (
+    "sync"
 )
 
 // -----------------------------------------------------------------------------
@@ -550,20 +626,16 @@ func Init() <span class="cov8" title="1">{
 // -----------------------------------------------------------------------------
 
 type anchor struct {
+    files []*fileObject   // !!! beware of memory leaks
+
     newFileID func () fileID
-    fileIndex map[fileID]*File
-    filePaths map[string][]*File
+    fileIndex *fileIndex
 
     newZoneID func () zoneID
-    zoneIndex map[zoneID]*Zone
-    zoneFiles map[fileID][]*Zone
-    zoneNames map[string][]*Zone
+    zoneIndex *zoneIndex
 
     newRecordID func () recordID
-    recordIndex map[recordID]*Record
-    recordZones map[zoneID][]*Record
-    recordAddresses map[string][]*Record
-    recordNames map[string][]*Record
+    recordIndex *recordIndex
 }
 
 var hosts *anchor
@@ -581,32 +653,41 @@ func initHosts() <span class="cov8" title="1">{
         lastFileID += 1
         return lastFileID
     }</span>
-    <span class="cov8" title="1">hosts.fileIndex = make(map[fileID]*File)
-    hosts.filePaths = make(map[string][]*File)
+    <span class="cov8" title="1">hosts.fileIndex = new(fileIndex)
+    hosts.fileIndex.index = make(map[fileID]*File)
+    hosts.fileIndex.paths = make(map[string][]*File)
 
     lastZoneID := zoneID(0)
     hosts.newZoneID = func() zoneID </span><span class="cov8" title="1">{
         lastZoneID += 1
         return lastZoneID
     }</span>
-    <span class="cov8" title="1">hosts.zoneIndex = make(map[zoneID]*Zone)
-    hosts.zoneFiles = make(map[fileID][]*Zone)
-    hosts.zoneNames = make(map[string][]*Zone)
+    <span class="cov8" title="1">hosts.zoneIndex = new(zoneIndex)
+    hosts.zoneIndex.index = make(map[zoneID]*Zone)
+    hosts.zoneIndex.files = make(map[fileID][]*Zone)
+    hosts.zoneIndex.names = make(map[string][]*Zone)
 
     lastRecordID := recordID(0)
     hosts.newRecordID = func() recordID </span><span class="cov8" title="1">{
         lastRecordID += 1
         return lastRecordID
     }</span>
-    <span class="cov8" title="1">hosts.recordIndex = make(map[recordID]*Record)
-    hosts.recordZones = make(map[zoneID][]*Record)
-    hosts.recordAddresses = make(map[string][]*Record)
-    hosts.recordNames = make(map[string][]*Record)</span>
+    <span class="cov8" title="1">hosts.recordIndex = new(recordIndex)
+    hosts.recordIndex.index = make(map[recordID]*Record)
+    hosts.recordIndex.zones = make(map[zoneID][]*Record)
+    hosts.recordIndex.addresses = make(map[string][]*Record)
+    hosts.recordIndex.names = make(map[string][]*Record)</span>
 }
 
 // -----------------------------------------------------------------------------
 
 type fileID int
+
+type fileIndex struct {
+    sync.RWMutex
+    index map[fileID]*File
+    paths map[string][]*File
+}
 
 func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
     if fQuery.id != 0 </span><span class="cov8" title="1">{
@@ -614,7 +695,10 @@ func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
     }</span>
 
     <span class="cov8" title="1">if fQuery.ID != 0 </span><span class="cov8" title="1">{
-        f := hosts.fileIndex[fileID(fQuery.ID)]
+        hosts.fileIndex.RLock()
+        f := hosts.fileIndex.index[fileID(fQuery.ID)]
+        hosts.fileIndex.RUnlock()
+
         if f == nil </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -628,7 +712,9 @@ func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if fQuery.Path != "" </span><span class="cov8" title="1">{
-        fs := hosts.filePaths[fQuery.Path]
+        hosts.fileIndex.RLock()
+        fs := hosts.fileIndex.paths[fQuery.Path]
+        hosts.fileIndex.RUnlock()
 
         if len(fs) != 1 </span><span class="cov8" title="1">{
             // if more than 1 valid record, 'get' cannot decide which one to return
@@ -650,8 +736,10 @@ func addFile(f *File) <span class="cov8" title="1">{
     <span class="cov8" title="1">id := hosts.newFileID()
     path := f.Path
 
-    hosts.fileIndex[id] = f
-    hosts.filePaths[path] = append(hosts.filePaths[path], f)
+    hosts.fileIndex.Lock()
+    hosts.fileIndex.index[id] = f
+    hosts.fileIndex.paths[path] = append(hosts.fileIndex.paths[path], f)
+    hosts.fileIndex.Unlock()
 
     f.ID = int(id)
     f.id = id
@@ -668,8 +756,10 @@ func removeFile(f *File) <span class="cov8" title="1">{
     <span class="cov8" title="1">id := f.id
     path := f.Path
 
-    delete(hosts.fileIndex, id)
-    hosts.filePaths[path] = deleteFromSliceOfFiles(hosts.filePaths[path], f)
+    hosts.fileIndex.Lock()
+    delete(hosts.fileIndex.index, id)
+    hosts.fileIndex.paths[path] = deleteFromSliceOfFiles(hosts.fileIndex.paths[path], f)
+    hosts.fileIndex.Unlock()
 
     f.ID = 0
     f.id = fileID(0)
@@ -682,14 +772,13 @@ func deleteFromSliceOfFiles(fs []*File, f *File) []*File <span class="cov8" titl
         return []*File(nil)   // always return a copy
     }</span>
 
-    <span class="cov8" title="1">newFiles := make([]*File, len(fs) - 1)
-    decr := 0
-    for i, file := range fs </span><span class="cov8" title="1">{
-        if file.id == f.id </span><span class="cov8" title="1">{
-            decr = 1
-        }</span> else<span class="cov8" title="1"> {
-            newFiles[i-decr] = fs[i]
-        }</span>
+    <span class="cov8" title="1">newFiles := make([]*File, 0, len(fs) - 1)
+    for _, file := range fs </span><span class="cov8" title="1">{
+        if file == f </span><span class="cov8" title="1">{
+            continue</span>
+        }
+
+        <span class="cov8" title="1">newFiles = append(newFiles, file)</span>
     }
 
     <span class="cov8" title="1">return newFiles</span>
@@ -699,13 +788,23 @@ func deleteFromSliceOfFiles(fs []*File, f *File) []*File <span class="cov8" titl
 
 type zoneID int
 
+type zoneIndex struct {
+    sync.RWMutex
+    index map[zoneID]*Zone
+    files map[fileID][]*Zone
+    names map[string][]*Zone
+}
+
 func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
     if zQuery.id != 0 </span><span class="cov8" title="1">{
         return zQuery
     }</span>
 
     <span class="cov8" title="1">if zQuery.ID != 0 </span><span class="cov8" title="1">{
-        z := hosts.zoneIndex[zoneID(zQuery.ID)]
+        hosts.zoneIndex.RLock()
+        z := hosts.zoneIndex.index[zoneID(zQuery.ID)]
+        hosts.zoneIndex.RUnlock()
+
         if z == nil </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -722,7 +821,9 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if zQuery.Name != "" </span><span class="cov8" title="1">{
-        zs := hosts.zoneNames[zQuery.Name]
+        hosts.zoneIndex.RLock()
+        zs := hosts.zoneIndex.names[zQuery.Name]
+        hosts.zoneIndex.RUnlock()
         if len(zs) == 0 </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -752,7 +853,9 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if zQuery.File != 0 </span><span class="cov8" title="1">{
-        zs := hosts.zoneFiles[fileID(zQuery.File)]
+        hosts.zoneIndex.RLock()
+        zs := hosts.zoneIndex.files[fileID(zQuery.File)]
+        hosts.zoneIndex.RUnlock()
 
         if len(zs) != 1 </span><span class="cov8" title="1">{
             // if more than 1 valid zone, 'get' cannot decide which one to return
@@ -775,9 +878,11 @@ func addZone(z *Zone) <span class="cov8" title="1">{
     file := fileID(z.File)
     name := z.Name
 
-    hosts.zoneIndex[id] = z
-    hosts.zoneFiles[file] = append(hosts.zoneFiles[file], z)
-    hosts.zoneNames[name] = append(hosts.zoneNames[name], z)
+    hosts.zoneIndex.Lock()
+    hosts.zoneIndex.index[id] = z
+    hosts.zoneIndex.files[file] = append(hosts.zoneIndex.files[file], z)
+    hosts.zoneIndex.names[name] = append(hosts.zoneIndex.names[name], z)
+    hosts.zoneIndex.Unlock()
 
     z.ID = int(id)
     z.id = id
@@ -795,9 +900,11 @@ func removeZone(z *Zone) <span class="cov8" title="1">{
     file := fileID(z.File)
     name := z.Name
 
-    delete(hosts.zoneIndex, id)
-    hosts.zoneFiles[file] = deleteFromSliceOfZones(hosts.zoneFiles[file], z)
-    hosts.zoneNames[name] = deleteFromSliceOfZones(hosts.zoneNames[name], z)
+    hosts.zoneIndex.Lock()
+    delete(hosts.zoneIndex.index, id)
+    hosts.zoneIndex.files[file] = deleteFromSliceOfZones(hosts.zoneIndex.files[file], z)
+    hosts.zoneIndex.names[name] = deleteFromSliceOfZones(hosts.zoneIndex.names[name], z)
+    hosts.zoneIndex.Unlock()
 
     z.ID = 0
     z.id = zoneID(0)
@@ -810,14 +917,12 @@ func deleteFromSliceOfZones(zs []*Zone, z *Zone) []*Zone <span class="cov8" titl
         return []*Zone(nil)   // always return a copy
     }</span>
 
-    <span class="cov8" title="1">newZones := make([]*Zone, len(zs) - 1)
-    decr := 0
-    for i, zone := range zs </span><span class="cov8" title="1">{
-        if zone.id == z.id </span><span class="cov8" title="1">{
-            decr = 1
-        }</span> else<span class="cov8" title="1"> {
-            newZones[i-decr] = zs[i]
-        }</span>
+    <span class="cov8" title="1">newZones := make([]*Zone, 0, len(zs) - 1)
+    for _, zone := range zs </span><span class="cov8" title="1">{
+        if zone == z </span><span class="cov8" title="1">{
+            continue</span>
+        }
+        <span class="cov8" title="1">newZones = append(newZones, zone)</span>
     }
 
     <span class="cov8" title="1">return newZones</span>
@@ -827,13 +932,24 @@ func deleteFromSliceOfZones(zs []*Zone, z *Zone) []*Zone <span class="cov8" titl
 
 type recordID int
 
+type recordIndex struct {
+    sync.RWMutex
+    index map[recordID]*Record
+    zones map[zoneID][]*Record
+    addresses map[string][]*Record
+    names map[string][]*Record
+}
+
 func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
     if rQuery.id != 0 </span><span class="cov8" title="1">{
         return rQuery
     }</span>
 
     <span class="cov8" title="1">if rQuery.ID != 0 </span><span class="cov8" title="1">{
-        r := hosts.recordIndex[recordID(rQuery.ID)]
+        hosts.recordIndex.RLock()
+        r := hosts.recordIndex.index[recordID(rQuery.ID)]
+        hosts.recordIndex.RUnlock()
+
         if r == nil </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -870,7 +986,10 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if len(rQuery.Names) &gt; 0 </span><span class="cov8" title="1">{
-        rs := hosts.recordNames[rQuery.Names[0]]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.names[rQuery.Names[0]]
+        hosts.recordIndex.RUnlock()
+
         if len(rs) == 0 </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -944,7 +1063,10 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if rQuery.Address != "" </span><span class="cov8" title="1">{
-        rs := hosts.recordAddresses[rQuery.Address]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.addresses[rQuery.Address]
+        hosts.recordIndex.RUnlock()
+
         if len(rs) == 0 </span><span class="cov8" title="1">{
             return nil
         }</span>
@@ -974,7 +1096,9 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
     }
 
     <span class="cov8" title="1">if rQuery.Zone != 0 </span><span class="cov8" title="1">{
-        rs := hosts.recordZones[zoneID(rQuery.Zone)]
+        hosts.recordIndex.RLock()
+        rs := hosts.recordIndex.zones[zoneID(rQuery.Zone)]
+        hosts.recordIndex.RUnlock()
 
         if len(rs) != 1 </span><span class="cov8" title="1">{
             // if more than 1 valid record, 'get' cannot decide which one to return
@@ -998,14 +1122,16 @@ func addRecord(r *Record) <span class="cov8" title="1">{
     address := r.Address
     names := r.Names
 
-    hosts.recordIndex[id] = r
-    hosts.recordZones[zone] = append(hosts.recordZones[zone], r)
-    hosts.recordAddresses[address] = append(hosts.recordAddresses[address], r)
+    hosts.recordIndex.Lock()
+    hosts.recordIndex.index[id] = r
+    hosts.recordIndex.zones[zone] = append(hosts.recordIndex.zones[zone], r)
+    hosts.recordIndex.addresses[address] = append(hosts.recordIndex.addresses[address], r)
     for _, n := range names </span><span class="cov8" title="1">{
-        hosts.recordNames[n] = append(hosts.recordNames[n], r)
+        hosts.recordIndex.names[n] = append(hosts.recordIndex.names[n], r)
     }</span>
+    <span class="cov8" title="1">hosts.recordIndex.Unlock()
 
-    <span class="cov8" title="1">r.ID = int(id)
+    r.ID = int(id)
     r.id = id
 
     return</span>
@@ -1022,14 +1148,16 @@ func removeRecord(r *Record) <span class="cov8" title="1">{
     address := r.Address
     names := r.Names
 
-    delete(hosts.recordIndex, id)
-    hosts.recordZones[zone] = deleteFromSliceOfRecords(hosts.recordZones[zone], r)
-    hosts.recordAddresses[address] = deleteFromSliceOfRecords(hosts.recordAddresses[address], r)
+    hosts.recordIndex.Lock()
+    delete(hosts.recordIndex.index, id)
+    hosts.recordIndex.zones[zone] = deleteFromSliceOfRecords(hosts.recordIndex.zones[zone], r)
+    hosts.recordIndex.addresses[address] = deleteFromSliceOfRecords(hosts.recordIndex.addresses[address], r)
     for _, n := range names </span><span class="cov8" title="1">{
-       hosts.recordNames[n] = deleteFromSliceOfRecords(hosts.recordNames[n], r)
+       hosts.recordIndex.names[n] = deleteFromSliceOfRecords(hosts.recordIndex.names[n], r)
     }</span>
+    <span class="cov8" title="1">hosts.recordIndex.Unlock()
 
-    <span class="cov8" title="1">r.ID = 0
+    r.ID = 0
     r.id = recordID(0)
 
     return</span>
@@ -1040,20 +1168,51 @@ func deleteFromSliceOfRecords(rs []*Record, r *Record) []*Record <span class="co
         return []*Record(nil)   // always return a copy
     }</span>
 
-    <span class="cov8" title="1">newRecords := make([]*Record, len(rs) - 1)
-    decr := 0
-    for i, record := range rs </span><span class="cov8" title="1">{
-        if record.id == r.id </span><span class="cov8" title="1">{
-            decr = 1
-        }</span> else<span class="cov8" title="1"> {
-            newRecords[i-decr] = rs[i]
-        }</span>
+    <span class="cov8" title="1">newRecords := make([]*Record, 0, len(rs) - 1)
+    for _, record := range rs </span><span class="cov8" title="1">{
+        if record == r </span><span class="cov8" title="1">{
+            continue</span>
+        }
+
+        <span class="cov8" title="1">newRecords = append(newRecords, record)</span>
     }
 
     <span class="cov8" title="1">return newRecords</span>
 }
 
 // -----------------------------------------------------------------------------
+
+type fileObject struct {
+    data     []byte   // filled by goRenderFile(), cleared by goScanFile()
+    checksum string
+    file     *File    // !!! beware of memory leaks
+}
+
+func addFileObject(f *fileObject) <span class="cov8" title="1">{
+    hosts.files = append(hosts.files, f)
+    return
+}</span>
+
+func removeFileObject(f *fileObject) <span class="cov8" title="1">{
+    hosts.files = deleteFromSliceOfFileObjects(hosts.files, f)
+    return
+}</span>
+
+func deleteFromSliceOfFileObjects(fs []*fileObject, f *fileObject) []*fileObject <span class="cov8" title="1">{
+    if len(fs) == 0 </span><span class="cov8" title="1">{
+        return []*fileObject(nil)   // always return a copy
+    }</span>
+
+    <span class="cov8" title="1">newFileObjects := make([]*fileObject, 0, len(fs) - 1)
+    for _, fileObject := range fs </span><span class="cov8" title="1">{
+        if f == fileObject </span><span class="cov8" title="1">{
+            continue</span>
+        }
+        <span class="cov8" title="1">newFileObjects = append(newFileObjects, fileObject)</span>
+    }
+
+    <span class="cov8" title="1">return newFileObjects</span>
+}
 </pre>
 		
 		<pre class="file" id="file2" style="display: none">//
@@ -1065,29 +1224,34 @@ func deleteFromSliceOfRecords(rs []*Record, r *Record) []*Record <span class="co
 package api
 
 import (
+    "crypto/sha1"
     "errors"
+    "encoding/hex"
+    "io"
+    "log"
+    "strings"
 )
 
 // -----------------------------------------------------------------------------
 
 type Record struct {
     // readOnly
-    ID      int        // indexed   // read-write in a rQuery
+    ID         int        // indexed   // read-write in a rQuery
     // read-writeOnce
-    Zone    int        // indexed   // read-write in a rQuery
+    Zone       int        // indexed
+    Address    string     // indexed
+    Names      []string   // indexed
     // read-writeMany
-    Address string     // indexed
-    Names   []string   // indexed
-    Comment string
-    Notes   string
-    // readOnly
-    Managed bool
+    Comment    string
+    Notes      string
     // readOnly        //-computed
-//    FQDN       string
-//    Domain     string
-//    RootDomain string
+//    FQDN         string
+//    Domain       string
+//    RootDomain   string
     // private
-    id      recordID
+    id         recordID
+    managed    bool
+    zoneRecord *recordObject   // !!! beware of memory leaks
 }
 
 func LookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
@@ -1105,7 +1269,6 @@ func LookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
     copy(r.Names, rPrivate.Names)
     r.Comment = rPrivate.Comment
     r.Notes   = rPrivate.Notes
-    r.Managed   = rPrivate.Managed
     // ignore computed fields
 
     return r</span>
@@ -1122,45 +1285,63 @@ func CreateRecord(rValues *Record) error <span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Names'")
     }</span>
 
+    // check zone
+    <span class="cov8" title="1">zQuery := new(Zone)
+    zQuery.ID = rValues.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'rValues.Zone' not found")
+    }</span>
+    <span class="cov8" title="1">if zPrivate.Name == "external" </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] cannot create records in the \"external\" zone")
+    }</span>
+
     // lookup all indexed fields except ID
     <span class="cov8" title="1">rQuery := new(Record)
     rQuery.Zone    = rValues.Zone
     rQuery.Address = rValues.Address
     rQuery.Names   = make([]string, len(rValues.Names))
     copy(rQuery.Names, rValues.Names)
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate != nil </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with similar properties already exists")
     }</span>
 
     // take ownership
-    <span class="cov8" title="1">rValues.Managed = true
+    <span class="cov8" title="1">rValues.managed = true
 
     return createRecord(rValues)</span>   // rValues.ID will be ignored
 }
 
-func (r *Record) Read() (record *Record, err error) <span class="cov0" title="0">{
-    if r.ID == 0 </span><span class="cov0" title="0">{
+func (r *Record) Read() (record *Record, err error) <span class="cov8" title="1">{
+    if r.ID == 0 </span><span class="cov8" title="1">{
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] missing 'r.ID'")
     }</span>
 
     // lookup the ID field only, ignore any other fields
-    <span class="cov0" title="0">rQuery := new(Record)
+    <span class="cov8" title="1">rQuery := new(Record)
     rQuery.ID = r.ID
-
     rPrivate := lookupRecord(rQuery)
-    if rPrivate == nil </span><span class="cov0" title="0">{
-        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record not found")
+    if rPrivate == nil </span><span class="cov8" title="1">{
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record 'r.ID' not found")
     }</span>
 
-    <span class="cov0" title="0">rPrivate, err = readRecord(rPrivate)
-    if err != nil </span><span class="cov0" title="0">{
+    // check zone
+    <span class="cov8" title="1">zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'r.Zone' not found")
+    }</span>
+
+    // read record
+    <span class="cov8" title="1">rPrivate, err = readRecord(rPrivate)
+    if err != nil </span><span class="cov8" title="1">{
         return nil, err
     }</span>
 
     // make a copy without the private fields
-    <span class="cov0" title="0">record = new(Record)
+    <span class="cov8" title="1">record = new(Record)
     record.ID      = rPrivate.ID
     record.Zone    = rPrivate.Zone
     record.Address = rPrivate.Address
@@ -1168,47 +1349,62 @@ func (r *Record) Read() (record *Record, err error) <span class="cov0" title="0"
     copy(record.Names, rPrivate.Names)
     record.Comment = rPrivate.Comment
     record.Notes   = rPrivate.Notes
-    record.Managed = rPrivate.Managed
     // no computed fields
 
     return record, nil</span>
 }
 
-func (r *Record) Update(rValues *Record) error <span class="cov0" title="0">{
-    if r.ID == 0 </span><span class="cov0" title="0">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'r.ID'")
-    }</span>
-    <span class="cov0" title="0">if rValues.Address == "" </span><span class="cov0" title="0">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Address'")
-    }</span>
-    <span class="cov0" title="0">if len(rValues.Names) == 0 </span><span class="cov0" title="0">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'rValues.Names'")
-    }</span>
-
-    // lookup the ID field only, ignore any other fields
-    <span class="cov0" title="0">rQuery := new(Record)
-    rQuery.ID = r.ID
-
-    rPrivate := lookupRecord(rQuery)
-    if rPrivate == nil </span><span class="cov0" title="0">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record not found")
-    }</span>
-
-    <span class="cov0" title="0">return updateRecord(rPrivate, rValues)</span>   // rValues.ID and rValues.Zone will be ignored
-}
-
-func (r *Record) Delete() error <span class="cov8" title="1">{
+func (r *Record) Update(rValues *Record) error <span class="cov8" title="1">{
     if r.ID == 0 </span><span class="cov8" title="1">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete(rValues)] missing 'r.ID'")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] missing 'r.ID'")
     }</span>
 
     // lookup the ID field only, ignore any other fields
     <span class="cov8" title="1">rQuery := new(Record)
     rQuery.ID = r.ID
-
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil </span><span class="cov8" title="1">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record 'r.ID' not found")
+    }</span>
+
+    // check zone
+    <span class="cov8" title="1">zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'r.Zone' not found")
+    }</span>
+    <span class="cov8" title="1">if zPrivate.Name == "external" </span><span class="cov8" title="1">{
+        if rValues.Comment != rPrivate.Comment </span><span class="cov8" title="1">{
+            return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] cannot update 'r.Comment' for records in the \"external\" zone")
+        }</span>
+    }
+
+    <span class="cov8" title="1">return updateRecord(rPrivate, rValues)</span>   // rValues.ID and rValues.Zone will be ignored
+}
+
+func (r *Record) Delete() error <span class="cov8" title="1">{
+    if r.ID == 0 </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] missing 'r.ID'")
+    }</span>
+
+    // lookup the ID field only, ignore any other fields
+    <span class="cov8" title="1">rQuery := new(Record)
+    rQuery.ID = r.ID
+    rPrivate := lookupRecord(rQuery)
+    if rPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record 'r.ID' not found")
+    }</span>
+
+    // check zone
+    <span class="cov8" title="1">zQuery := new(Zone)
+    zQuery.ID = rPrivate.Zone
+    zPrivate := lookupZone(zQuery)
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] zone 'r.Zone' not found")
+    }</span>
+    <span class="cov8" title="1">if zPrivate.Name == "external" </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] cannot delete records in the \"external\" zone")
     }</span>
 
     <span class="cov8" title="1">return deleteRecord(rPrivate)</span>
@@ -1249,42 +1445,273 @@ func (r *Record) Delete() error <span class="cov8" title="1">{
 func createRecord(rValues *Record) error <span class="cov8" title="1">{
     // create record
     r := new(Record)
-    r.Zone    = rValues.Zone
-    r.Address = rValues.Address
-    r.Names   = make([]string, len(rValues.Names))
+    r.Zone       = rValues.Zone
+    r.Address    = rValues.Address
+    r.Names      = make([]string, len(rValues.Names))
     copy(r.Names, rValues.Names)
-    r.Comment = rValues.Comment
-    r.Notes   = rValues.Notes
-    r.Managed = rValues.Managed
+    r.Comment    = rValues.Comment
+    r.Notes      = rValues.Notes
 
-    addRecord(r)   // adds r.ID and r.id
+    r.managed    = rValues.managed      // requested by CreateRecord()
 
-//    managed := rValues.Managed   // managed when called from CreateRecord, unmanaged when called from goScanLines (zone.go)
+    addRecord(r)   // updates r.ID and r.id
 
-    return nil
-}</span>
+    if rValues.zoneRecord == nil </span><span class="cov8" title="1">{   // if requested by CreateRecord()
+        // add the record to the zone
+        zoneRecord := new(recordObject)
+        zoneRecord.record = r       // !!! beware of memory leaks
+        r.zoneRecord = zoneRecord   // !!! beware of memory leaks
 
-func readRecord(r *Record) (record *Record, err error) <span class="cov0" title="0">{
-    return r, nil
-}</span>
+        zQuery := new(Zone)
+        zQuery.ID = r.Zone
+        z := lookupZone(zQuery)
+        addRecordObject(z, zoneRecord)
+    
+        // render record
+        renderRecord(r)   // updates lines &amp; checksum
 
-func updateRecord(r *Record, rValues *Record) error <span class="cov0" title="0">{
-    return nil
-}</span>
+        // update zone
+        err := updateZone(z, z)
+        if err != nil </span><span class="cov8" title="1">{
+            // restore consistent state
+            removeRecordObject(z, zoneRecord)
+            r.zoneRecord = nil   // !!! avoid memory leaks
+            removeRecord(r)
+
+            return err
+        }</span>
+    } else<span class="cov8" title="1"> {                         // requested by goScanRecord()
+        // update record &amp; recordObject
+        r.zoneRecord = rValues.zoneRecord   // !!! beware of memory leaks
+        r.zoneRecord.record = r             // !!! beware of memory leaks
+    }</span>
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/createRecord()] created zone %d, record %q - %#v\n", r.Zone, r.Address, r.Names)
+    return nil</span>
+}
+
+func readRecord(r *Record) (record *Record, err error) <span class="cov8" title="1">{
+    // read zone
+    zQuery := new(Zone)
+    zQuery.ID = r.Zone
+    z := lookupZone(zQuery)
+    _, err = readZone(z)
+    if err != nil </span><span class="cov8" title="1">{
+        return nil, err
+    }</span>
+
+    // don't return r, instead lookup record
+    // - to cover case where record was deleted by external programs
+    <span class="cov8" title="1">rQuery := new(Record)
+    rQuery.ID = r.ID
+    record = lookupRecord(rQuery)
+
+    // no computed fields
+
+    if record != nil </span><span class="cov8" title="1">{
+        log.Printf("[INFO][terraform-provider-hosts/api/readRecord()] read zone %d, record %q - %#v\n", record.Zone, record.Address, record.Names)
+    }</span>
+    <span class="cov8" title="1">return record, nil</span>
+}
+
+func updateRecord(r *Record, rValues *Record) error <span class="cov8" title="1">{
+    comment := r.Comment   // save so we can restore if needed
+    notes   := r.Notes     // save so we can restore if needed
+    oldChecksum := r.zoneRecord.checksum   // save to compare old with new
+
+    // update record
+    r.Comment  = rValues.Comment
+    r.Notes    = rValues.Notes
+
+    if rValues.zoneRecord == nil || r == rValues </span><span class="cov8" title="1">{   // if requested by r.Update() or if forcing a render/write
+        // render record to calculate new checksum
+        renderRecord(r)   // updates lines &amp; checksum
+        
+        if r.zoneRecord.checksum != oldChecksum </span><span class="cov8" title="1">{
+            // update zone
+            zQuery := new(Zone)
+            zQuery.ID = r.Zone
+            z := lookupZone(zQuery)
+            err := updateZone(z, z)
+            if err != nil </span><span class="cov8" title="1">{
+                // restore consistent state
+                r.Comment = comment
+                r.Notes   = notes
+                renderRecord(r)
+
+                return err
+            }</span>
+        }
+    } else<span class="cov8" title="1"> {                         // requested by goScanRecord()
+        // update record &amp; recordObject
+        r.zoneRecord = rValues.zoneRecord   // !!! beware of memory leaks
+        r.zoneRecord.record = r             // !!! beware of memory leaks
+    }</span>
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/updateRecord()] updated zone %d, record %q - %#v\n", r.Zone, r.Address, r.Names)
+    return nil</span>
+}
 
 func deleteRecord(r *Record) error <span class="cov8" title="1">{
-    // remove and zero file object
-    r.Zone    = 0
-    r.Address = ""
-    r.Names   = make([]string, 0)
-    r.Comment = ""
-    r.Notes   = ""
-    r.Managed = false
+    // remove the record from the zone
+    if r.zoneRecord != nil </span><span class="cov8" title="1">{   // if requested by r.Delete()
+        zQuery := new(Zone)
+        zQuery.ID = r.Zone
+        z := lookupZone(zQuery)
 
+        removeRecordObject(z, r.zoneRecord)
+        oldZoneRecord := r.zoneRecord   // save so we can restore if needed
+        r.zoneRecord = nil              // !!! avoid memory leaks
+
+        err := updateZone(z, z)
+        if err != nil </span><span class="cov8" title="1">{
+            // restore consistent state
+            r.zoneRecord = oldZoneRecord   // !!! beware of memory leaks
+            addRecordObject(z, r.zoneRecord)
+
+            return err
+        }</span>
+    }
+
+    // save for logging
+    <span class="cov8" title="1">zone := r.Zone
+    address := r.Address
+    names := r.Names
+
+    // remove and zero record
     removeRecord(r)   // zeroes r.ID and r.id
 
-    return nil
-}</pre>
+    r.Zone       = 0
+    r.Address    = ""
+    r.Names      = []string(nil)
+    r.Comment    = ""
+    r.Notes      = ""
+
+    r.managed    = false
+
+    log.Printf("[INFO][terraform-provider-hosts/api/deleteRecord()] deleted zone %d, record %q - %#v\n", zone, address, names)
+    return nil</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func renderRecord(r *Record) <span class="cov8" title="1">{
+    // render strings
+    rendered := make([]string, 0, 1)                                            // at this moment we support only single-line records
+
+    line := r.Address
+
+    for _, name := range r.Names </span><span class="cov8" title="1">{
+        line += " " + name
+    }</span>
+
+    <span class="cov8" title="1">if r.Comment != "" </span><span class="cov8" title="1">{
+        line += " #" + r.Comment
+    }</span>
+
+    <span class="cov8" title="1">rendered = append(rendered, line)
+
+    // calculate checksum for the line
+    checksum := sha1.Sum([]byte(line))
+
+    // update recordObject
+    r.zoneRecord.lines = rendered
+    r.zoneRecord.checksum = hex.EncodeToString(checksum[:])
+
+    return</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanRecord(z *Zone, zoneRecord *recordObject, lines &lt;-chan string) chan bool <span class="cov8" title="1">{
+    done := make(chan bool)
+
+    go func() </span><span class="cov8" title="1">{
+        defer close(done)
+
+        // create a hash for the checksum of the record
+        hash := sha1.New()
+        
+        // collect lines
+        collected := make([]string, 0)
+        for line := range lines </span><span class="cov8" title="1">{
+            // update hash
+            _, _ = io.WriteString(hash, line)
+
+            // update lines
+            collected = append(collected, line)
+        }</span>
+        <span class="cov8" title="1">if len(collected) == 0 </span><span class="cov8" title="1">{
+            done &lt;- true
+            return
+        }</span>
+
+        // calculate checksum for the lines
+        <span class="cov8" title="1">checksum := hash.Sum(nil)
+        zoneRecord.checksum = hex.EncodeToString(checksum[:])   // we cannot check if checksum changed because we need to parse the lines to know which record this is
+
+        // update recordObject
+        zoneRecord.lines = collected
+
+        // process lines                                                        // at this moment we support only single-line records
+
+        // split the line in an information-part and a comment-part
+        parts := strings.SplitN(zoneRecord.lines[0], "#", 2)
+
+        if parts[0] == "" </span><span class="cov8" title="1">{
+            // the line doesn't have an information-part
+            done &lt;- true
+            return
+        }</span>
+
+        <span class="cov8" title="1">comment := ""
+        if len(parts) &gt; 1 </span><span class="cov8" title="1">{
+            comment = strings.TrimRight(parts[1], " \t")
+        }</span>
+
+        // split the information-part
+        <span class="cov8" title="1">parts = strings.Fields(parts[0])
+
+        if len(parts) &lt; 2 </span><span class="cov8" title="1">{
+            // the information-part doesn't have both an address and a name
+            log.Printf("[WARNING][terraform-provider-hosts/api/goScanRecord()] information-part doesn't have both an address and a name, skipping line: \n&gt; %q", zoneRecord.lines[0])
+
+            done &lt;- true
+            return
+        }</span>
+
+        // create a new record if it doesn't exist, otherwise update it
+        <span class="cov8" title="1">rQuery := new(Record)
+        rQuery.Zone = z.ID
+        rQuery.Address = parts[0]
+        rQuery.Names = parts[1:]
+        r := lookupRecord(rQuery)
+
+        if r == nil </span><span class="cov8" title="1">{
+            // create record
+            rQuery.Comment = comment
+            // rQuery.Notes   = ""   // notes are not saved in file
+
+            rQuery.zoneRecord = zoneRecord
+        
+            _ = createRecord(rQuery)   // error cannot happen
+        }</span> else<span class="cov8" title="1"> {
+            // update record
+            rQuery.Comment = comment
+            rQuery.Notes   = r.Notes   // notes are not saved in file, need to pick up from old record
+
+            rQuery.zoneRecord = zoneRecord
+        
+            _ = updateRecord(r, rQuery)   // error cannot happen
+        }</span>
+
+        <span class="cov8" title="1">done &lt;- true
+        return</span>
+    }()
+
+    <span class="cov8" title="1">return done</span>
+}
+</pre>
 		
 		<pre class="file" id="file3" style="display: none">//
 // Copyright (c) 2019 Stefaan Coussement
@@ -1299,6 +1726,8 @@ import (
     "errors"
     "encoding/hex"
     "io"
+    "log"
+    "strings"
 )
 
 // -----------------------------------------------------------------------------
@@ -1307,14 +1736,15 @@ type Zone struct {
     // readOnly
     ID       int      // indexed   // read-write in a zQuery
     // read-writeOnce
-    File     int      // indexed   // read-write in a zQuery
-    Name     string   // indexed   // read-write in a zQuery
+    File     int      // indexed
+    Name     string   // indexed
     // read-writeMany
     Notes    string
     // private
     id       zoneID
-    lines    []string
-    checksum string
+    managed  bool
+    fileZone *zoneObject       // !!! beware of memory leaks
+    records  []*recordObject   // !!! beware of memory leaks
 }
 
 func LookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
@@ -1345,40 +1775,59 @@ func CreateZone(zValues *Zone) error <span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] illegal value \"external\" specified for 'zValues.Name'")
     }</span>
 
+    // check file
+    <span class="cov8" title="1">fQuery := new(File)
+    fQuery.ID = zValues.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] file 'zValues.File' not found")
+    }</span>
+
     // lookup all indexed fields except ID
     <span class="cov8" title="1">zQuery := new(Zone)
     zQuery.File = zValues.File
     zQuery.Name = zValues.Name
-
     zPrivate := lookupZone(zQuery)
     if zPrivate != nil </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] another zone with similar properties already exists")
     }</span>
 
-    <span class="cov8" title="1">return createZone(zValues)</span>   // zValues.ID will be ignored
+    // take ownership
+    <span class="cov8" title="1">zValues.managed = true
+
+    return createZone(zValues)</span>   // zValues.ID will be ignored
 }
 
-func (z *Zone) Read() (zone *Zone, err error) <span class="cov0" title="0">{
-    if z.ID == 0 </span><span class="cov0" title="0">{
+func (z *Zone) Read() (zone *Zone, err error) <span class="cov8" title="1">{
+    if z.ID == 0 </span><span class="cov8" title="1">{
         return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] missing 'z.ID'")
     }</span>
 
     // lookup the ID field only, ignore any other fields
-    <span class="cov0" title="0">zQuery := new(Zone)
+    <span class="cov8" title="1">zQuery := new(Zone)
     zQuery.ID = z.ID
 
     zPrivate := lookupZone(zQuery)
-    if zPrivate == nil </span><span class="cov0" title="0">{
-        return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] zone not found")
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] zone 'z.ID' not found")
     }</span>
 
-    <span class="cov0" title="0">zPrivate, err = readZone(zPrivate)
-    if err != nil </span><span class="cov0" title="0">{
+    // check file
+    <span class="cov8" title="1">fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil </span><span class="cov8" title="1">{
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
+    }</span>
+
+    // read zone
+    <span class="cov8" title="1">zPrivate, err = readZone(zPrivate)
+    if err != nil </span><span class="cov8" title="1">{
         return nil, err
     }</span>
 
     // make a copy without the private fields
-    <span class="cov0" title="0">zone = new(Zone)
+    <span class="cov8" title="1">zone = new(Zone)
     zone.ID      = zPrivate.ID
     zone.File    = zPrivate.File
     zone.Name    = zPrivate.Name
@@ -1388,21 +1837,29 @@ func (z *Zone) Read() (zone *Zone, err error) <span class="cov0" title="0">{
     return zone, nil</span>
 }
 
-func (z *Zone) Update(zValues *Zone) error <span class="cov0" title="0">{
-    if z.ID == 0 </span><span class="cov0" title="0">{
+func (z *Zone) Update(zValues *Zone) error <span class="cov8" title="1">{
+    if z.ID == 0 </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/z.Update(zValues)] missing 'z.ID'")
     }</span>
 
     // lookup the ID field only, ignore any other fields
-    <span class="cov0" title="0">zQuery := new(Zone)
+    <span class="cov8" title="1">zQuery := new(Zone)
     zQuery.ID = z.ID
 
     zPrivate := lookupZone(zQuery)
-    if zPrivate == nil </span><span class="cov0" title="0">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/z.Update(zValues)] zone not found")
+    if zPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Update(zValues)] zone 'z.ID' not found")
     }</span>
 
-    <span class="cov0" title="0">return updateZone(zPrivate, zValues)</span>   // zValues.ID, zValues.Name and zValues.File will be ignored
+    // check file
+    <span class="cov8" title="1">fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
+    }</span>
+
+    <span class="cov8" title="1">return updateZone(zPrivate, zValues)</span>   // zValues.ID, zValues.Name and zValues.File will be ignored
 }
 
 func (z *Zone) Delete() error <span class="cov8" title="1">{
@@ -1416,7 +1873,18 @@ func (z *Zone) Delete() error <span class="cov8" title="1">{
 
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil </span><span class="cov8" title="1">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/z.Delete()] zone not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Delete()] zone 'z.ID' not found")
+    }</span>
+    <span class="cov8" title="1">if zPrivate.Name == "external" </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Delete()] cannot delete zone \"external\"")
+    }</span>
+
+    // check file
+    <span class="cov8" title="1">fQuery := new(File)
+    fQuery.ID = zPrivate.File
+    fPrivate := lookupFile(fQuery)
+    if fPrivate == nil </span><span class="cov8" title="1">{
+        return errors.New("[ERROR][terraform-provider-hosts/api/z.Read()] file 'z.File' not found")
     }</span>
 
     <span class="cov8" title="1">return deleteZone(zPrivate)</span>
@@ -1457,55 +1925,212 @@ func (z *Zone) Delete() error <span class="cov8" title="1">{
 func createZone(zValues *Zone) error <span class="cov8" title="1">{
     // create zone
     z := new(Zone)
-    z.File  = zValues.File
-    z.Name  = zValues.Name
-    z.Notes = zValues.Notes
+    z.File     = zValues.File
+    z.Name     = zValues.Name
+    z.Notes    = zValues.Notes
 
-//    z.lines = make([]string, 0)                                               // TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    z.managed  = zValues.managed   // requested by CreateZone()
 
     addZone(z)   // adds z.ID and z.id
 
-    return nil
-}</span>
+    if zValues.fileZone == nil </span><span class="cov8" title="1">{   // if requested by CreateZone()
+        // add the zone to the file
+        fileZone := new(zoneObject)
+        fileZone.zone = z       // !!! beware of memory leaks
+        z.fileZone = fileZone   // !!! beware of memory leaks
 
-func readZone(z *Zone) (zone *Zone, err error) <span class="cov0" title="0">{
-    return z, nil
-}</span>
+        fQuery := new(File)
+        fQuery.ID = z.File
+        f := lookupFile(fQuery)
+        addZoneObject(f, fileZone)
+    
+        // render zone
+        renderZone(z)   // updates lines &amp; checksum
 
-func updateZone(z *Zone, zValues *Zone) error <span class="cov0" title="0">{
-    return nil
-}</span>
+        // update file
+        err := updateFile(f, f)
+        if err != nil </span><span class="cov8" title="1">{
+            // restore consistent state
+            removeZoneObject(f, fileZone)
+            z.fileZone = nil   // !!! avoid memory leaks
+            removeZone(z)
+
+            return err
+        }</span>
+    } else<span class="cov8" title="1"> {                       // requested by goScanZone()
+        // update zone &amp; zoneObject
+        z.fileZone = zValues.fileZone   // !!! beware of memory leaks
+        z.fileZone.zone = z             // !!! beware of memory leaks
+    }</span>
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/createZone()] created file %d, zone %q\n", z.File, z.Name)
+    return nil</span>
+}
+
+func readZone(z *Zone) (zone *Zone, err error) <span class="cov8" title="1">{
+    // read file
+    fQuery := new(File)
+    fQuery.ID = z.File
+    f := lookupFile(fQuery)
+    _, err = readFile(f)
+    if err != nil </span><span class="cov8" title="1">{
+        return nil, err
+    }</span>
+
+    // don't return z, instead lookup zone
+    // - to cover case where zone was deleted by external programs
+    <span class="cov8" title="1">zQuery := new(Zone)
+    zQuery.ID = z.ID
+    zone = lookupZone(zQuery)
+
+    // no computed fields
+    if zone != nil </span><span class="cov8" title="1">{
+        log.Printf("[INFO][terraform-provider-hosts/api/readZone()] read file %d, zone %q\n", zone.File, zone.Name)
+    }</span>
+    <span class="cov8" title="1">return zone, nil</span>
+}
+
+func updateZone(z *Zone, zValues *Zone) error <span class="cov8" title="1">{
+    notes   := z.Notes     // save so we can restore if needed
+    oldLines    := z.fileZone.lines      // save so we can restore if needed
+    oldChecksum := z.fileZone.checksum   // save to compare old with new
+
+    // update zone
+    z.Notes    = zValues.Notes
+
+    if zValues.fileZone == nil || z == zValues </span><span class="cov8" title="1">{   // if requested by z.Update() or if forcing a render/write
+        // render zone to calculate new checksum
+        renderZone(z)   // updates lines &amp; checksum
+        
+        if z.fileZone.checksum != oldChecksum </span><span class="cov8" title="1">{
+            // update file
+            fQuery := new(File)
+            fQuery.ID = z.File
+            f := lookupFile(fQuery)
+            err := updateFile(f, f)
+            if err != nil </span><span class="cov8" title="1">{
+                // restore consistent state
+                z.Notes    = notes
+                z.fileZone.lines    = oldLines
+                z.fileZone.checksum = oldChecksum
+
+                return err
+            }</span>
+        }
+    } else<span class="cov8" title="1"> {                       // requested by goScanZone()
+        // update zone &amp; zoneObject
+        z.fileZone = zValues.fileZone   // !!! beware of memory leaks
+        z.fileZone.zone = z             // !!! beware of memory leaks
+    }</span>
+
+    <span class="cov8" title="1">log.Printf("[INFO][terraform-provider-hosts/api/updateZone()] updated file %d, zone %q\n", z.File, z.Name)
+    return nil</span>
+}
 
 func deleteZone(z *Zone) error <span class="cov8" title="1">{
-    // remove and zero file object
-    z.File    = 0
-    z.Name    = ""
-    z.Notes   = ""
+    // remove the zone from the file
+    if z.fileZone != nil </span><span class="cov8" title="1">{   // if requested by z.Delete()
+        fQuery := new(File)
+        fQuery.ID = z.File
+        f := lookupFile(fQuery)
 
+        removeZoneObject(f, z.fileZone)
+        oldFileZone := z.fileZone   // save so we can restore if needed
+        z.fileZone = nil            // !!! avoid memory leaks
+
+        err := updateFile(f, f)
+        if err != nil </span><span class="cov8" title="1">{
+            // restore consistent state
+            z.fileZone = oldFileZone   // !!! beware of memory leaks
+            addZoneObject(f, z.fileZone)
+
+            return err
+        }</span>
+    }
+
+    // save for logging
+    <span class="cov8" title="1">file := z.File
+    name := z.Name
+
+    // remove and zero zone object
     removeZone(z)   // zeroes z.ID and z.id
 
-    return nil
-}</span>
+    z.File     = 0
+    z.Name     = ""
+    z.Notes    = ""
 
-// -----------------------------------------------------------------------------
+    z.managed  = false
+    for _, recordObject := range z.records </span><span class="cov8" title="1">{   // !!! avoid memory leaks
+        recordObject.record = nil
+    }</span>
+    <span class="cov8" title="1">z.records  = []*recordObject(nil)
 
-func goRenderLines(z *Zone) chan string <span class="cov8" title="1">{
-    lines := make(chan string)
-
-    go func() </span><span class="cov8" title="1">{
-        defer close(lines)
-
-        for _, line := range z.lines </span><span class="cov8" title="1">{
-            lines &lt;- line
-        }</span>
-    }()
-
-    <span class="cov8" title="1">return lines</span>
+    log.Printf("[INFO][terraform-provider-hosts/api/deleteZone()] deleted file %d, zone %q\n", file, name)
+    return nil</span>
 }
 
 // -----------------------------------------------------------------------------
 
-func goScanLines(z *Zone, lines &lt;-chan string) chan bool <span class="cov8" title="1">{
+var startZoneMarker string = "##### Start Of Terraform Zone: "
+var endZoneMarker string   = "##### End Of Terraform Zone: "
+
+// -----------------------------------------------------------------------------
+
+func renderZone(z *Zone) <span class="cov8" title="1">{
+    // create a hash for the checksum of the zone
+    hash := sha1.New()
+
+    // render strings
+    rendered := make([]string, 0)
+
+    // render marker
+    line := startZoneMarker + z.Name + " #####"
+    padding := 80 - len(line)
+    if padding &lt; 0 </span><span class="cov8" title="1">{ padding = 0 }</span>
+    <span class="cov8" title="1">line += strings.Repeat("#", padding)
+
+    // update hash
+    _, _ = io.WriteString(hash, line)   // error cannot happen
+    _, _ = io.WriteString(hash, "\n")   // error cannot happen
+
+    // update lines
+    rendered = append(rendered, line)
+
+    for _, recordObject := range z.records </span><span class="cov8" title="1">{
+        // update hash
+        _, _ = io.WriteString(hash, recordObject.lines[0])   // error cannot happen   // at this moment we support only single-line records
+        _, _ = io.WriteString(hash, "\n")                    // error cannot happen
+
+        // update lines
+        rendered = append(rendered, recordObject.lines[0])                      // at this moment we support only single-line records
+    }</span>
+
+    // render marker
+    <span class="cov8" title="1">line = endZoneMarker + z.Name + " #####"
+    padding = 80 - len(line)
+    if padding &lt; 0 </span><span class="cov8" title="1">{ padding = 0 }</span>
+    <span class="cov8" title="1">line += strings.Repeat("#", padding)
+
+    // update hash
+    _, _ = io.WriteString(hash, line)   // error cannot happen
+    _, _ = io.WriteString(hash, "\n")   // error cannot happen
+
+    // update lines
+    rendered = append(rendered, line)
+
+    // calculate checksum for the lines
+    checksum := hash.Sum(nil)
+
+    // update zoneObject
+    z.fileZone.lines = rendered
+    z.fileZone.checksum = hex.EncodeToString(checksum[:])
+
+    return</span>
+}
+
+// -----------------------------------------------------------------------------
+
+func goScanZone(f *File, fileZone *zoneObject, lines &lt;-chan string) chan bool <span class="cov8" title="1">{
     done := make(chan bool)
 
     go func() </span><span class="cov8" title="1">{
@@ -1513,24 +2138,187 @@ func goScanLines(z *Zone, lines &lt;-chan string) chan bool <span class="cov8" t
 
         // create a hash for the checksum of the zone
         hash := sha1.New()
-        
-        for line := range lines </span><span class="cov8" title="1">{
-            // update hash
-            _, _ = io.WriteString(hash, line)
 
-            // update zone
-            z.lines = append(z.lines, line)
+        // scan first line, possibly a start-zone-marker
+        var line string
+        var receivedLine bool
+        for line = range lines </span><span class="cov8" title="1">{   // using for to cover case where lines channel is closed before a line is sent - applicable to files without external records
+            receivedLine = true
+            break</span>
+        }
+        <span class="cov8" title="1">if !receivedLine </span><span class="cov8" title="1">{
+            done &lt;- true
+            return
         }</span>
 
-        // save checksum of the zone
-        <span class="cov8" title="1">checksum := hash.Sum(nil)
-        z.checksum = hex.EncodeToString(checksum[:])
+        // get zone name
+        <span class="cov8" title="1">var zone string
+        isStartMarker := strings.HasPrefix(line, startZoneMarker)
+        if isStartMarker </span><span class="cov8" title="1">{
+            zone = strings.Trim(line[len(startZoneMarker):], " #")
+        }</span> else<span class="cov8" title="1"> {
+            zone = "external"
+        }</span>
 
-        done &lt;- true
+        // update hash
+        <span class="cov8" title="1">_, _ = io.WriteString(hash, line)   // error cannot happen
+        _, _ = io.WriteString(hash, "\n")   // error cannot happen
+
+        // create/update zone
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = zone
+        z := lookupZone(zQuery)
+
+        var oldChecksum string
+        if z == nil </span><span class="cov8" title="1">{
+            // create zone
+            // zQuery.Notes   = ""   // notes are not saved in file
+
+            zQuery.fileZone = fileZone
+
+            _ = createZone(zQuery)   // error cannot happen
+            z = lookupZone(zQuery)
+        }</span> else<span class="cov8" title="1"> {
+            // pickup old checksum
+            oldChecksum = z.fileZone.checksum
+
+            // update zone
+            zQuery.Notes   = z.Notes   // notes are not saved in file, need to pick up from old zone
+
+            zQuery.fileZone = fileZone
+        
+            _ = updateZone(z, zQuery)   // error cannot happen
+        }</span>
+
+        // keep the old slice of recordObjects to cleanup old records that aren't replaced
+        <span class="cov8" title="1">oldRecords := z.records
+
+        // update zone with new slice of recordObjects
+        z.records = make([]*recordObject, 0)
+
+        defer func() </span><span class="cov8" title="1">{
+            // cleanup records that aren't replaced
+            for _, zoneRecord := range oldRecords </span><span class="cov8" title="1">{
+                r := zoneRecord.record
+                if r != nil </span><span class="cov8" title="1">{   // if zoneRecord is a record, not a comment/blank-line
+                    if r.zoneRecord == zoneRecord </span><span class="cov8" title="1">{   // if record was deleted from the read zone, zoneRecord was not replaced
+                        // delete record object
+                        r.zoneRecord = nil   // !!! avoid memory leaks
+                        _ = deleteRecord(r)   // error cannot happen
+                    }</span>
+                }
+            }
+        }()
+
+        // update zone
+        <span class="cov8" title="1">if !isStartMarker </span><span class="cov8" title="1">{
+            zoneRecord := new(recordObject)
+            zoneRecord.lines = append(zoneRecord.lines, line)                   // at this moment we support only single-line records
+            addRecordObject(z, zoneRecord)
+        }</span>
+
+        // collect lines
+        <span class="cov8" title="1">for line := range lines </span><span class="cov8" title="1">{
+
+            if strings.HasPrefix(line, endZoneMarker) </span><span class="cov8" title="1">{
+                if len(line) == len(endZoneMarker) </span><span class="cov8" title="1">{
+                    // no zone name in end-marker - goScanFile probably inserted anonymous endZoneMarker
+                    // render missing marker
+                    line = endZoneMarker + zone + " #####"
+                    padding := 80 - len(line)
+                    if padding &lt; 0 </span><span class="cov8" title="1">{ padding = 0 }</span>
+                    <span class="cov8" title="1">line += strings.Repeat("#", padding)
+                    fileZone.lines = append(fileZone.lines, line)</span>
+                }
+
+                // update hash
+                <span class="cov8" title="1">_, _ = io.WriteString(hash, line)   // error cannot happen
+                _, _ = io.WriteString(hash, "\n")   // error cannot happen
+
+                // end of zone
+                if !strings.HasPrefix(line, endZoneMarker + zone) </span><span class="cov8" title="1">{
+                    // unexpected endZoneMarker, probably an endZone- and startZone-Marker missing =&gt; silently ignore
+                    // all records from the zone with missing startZoneMarker will be in the current zone
+                    log.Printf("[WARNING][terraform-provider-hosts/api/goScanZone()] unexpected end-of-zone marker - missing end-of-zone and start-of-zone marker: \n&gt; %q\n", line)
+                }</span>
+
+                <span class="cov8" title="1">break</span>
+            } else<span class="cov8" title="1"> {
+                // update hash
+                _, _ = io.WriteString(hash, line)   // error cannot happen
+                _, _ = io.WriteString(hash, "\n")   // error cannot happen
+            }</span>
+
+            <span class="cov8" title="1">zoneRecord := new(recordObject)
+            zoneRecord.lines = append(zoneRecord.lines, line)               // at this moment we support only single-line records
+            addRecordObject(z, zoneRecord)</span>
+        }
+
+        // calculate checksum for the lines
+        <span class="cov8" title="1">checksum := hash.Sum(nil)
+        fileZone.checksum = hex.EncodeToString(checksum[:])
+
+        if fileZone.checksum == oldChecksum </span><span class="cov8" title="1">{
+            done &lt;- true
+            return
+        }</span>
+
+        // process lines
+        <span class="cov8" title="1">for _, zoneRecord := range z.records </span><span class="cov8" title="1">{
+            lines2 := make(chan string)
+            done2 := goScanRecord(z, zoneRecord, lines2)
+
+            lines2 &lt;- zoneRecord.lines[0]                                        // at this moment we support only single-line records
+
+            close(lines2)
+            _ = &lt;-done2
+        }</span>
+
+        <span class="cov8" title="1">done &lt;- true
         return</span>
     }()
 
     <span class="cov8" title="1">return done</span>
+}
+
+// -----------------------------------------------------------------------------
+
+type recordObject struct {
+    // remark that a record can be split over multiple lines
+    // - f.i. a comment-line before to information-line
+    // - f.i. names split over several lines
+    lines    []string
+    checksum string
+    // remark that a recordObject may not have an associated record
+    // - f.i. a comment-line in the external zone of the hosts-file
+    record   *Record   // !!! beware of memory leaks
+}
+
+func addRecordObject(z *Zone, r *recordObject) <span class="cov8" title="1">{
+    z.records = append(z.records, r)
+    return
+}</span>
+
+func removeRecordObject(z *Zone, r *recordObject) <span class="cov8" title="1">{
+    z.records = deleteFromSliceOfRecordObjects(z.records, r)
+    return
+}</span>
+
+func deleteFromSliceOfRecordObjects(rs []*recordObject, r *recordObject) []*recordObject <span class="cov8" title="1">{
+    if len(rs) == 0 </span><span class="cov8" title="1">{
+        return []*recordObject(nil)   // always return a copy
+    }</span>
+
+    <span class="cov8" title="1">newRecordObjects := make([]*recordObject, 0, len(rs) - 1)
+    for _, recordObject := range rs </span><span class="cov8" title="1">{
+        if r == recordObject </span><span class="cov8" title="1">{
+            continue</span>
+        }
+        <span class="cov8" title="1">newRecordObjects = append(newRecordObjects, recordObject)</span>
+    }
+
+    <span class="cov8" title="1">return newRecordObjects</span>
 }
 </pre>
 		

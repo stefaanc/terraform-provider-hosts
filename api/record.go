@@ -106,7 +106,7 @@ func (r *Record) Read() (record *Record, err error) {
     rQuery.ID = r.ID
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
-        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record not found")
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Read()] record 'r.ID' not found")
     }
 
     // check zone
@@ -114,7 +114,7 @@ func (r *Record) Read() (record *Record, err error) {
     zQuery.ID = rPrivate.Zone
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil {
-        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone for record 'r.ID' not found")
+        return nil, errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'r.Zone' not found")
     }
 
     // read record
@@ -147,7 +147,7 @@ func (r *Record) Update(rValues *Record) error {
     rQuery.ID = r.ID
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] record 'r.ID' not found")
     }
 
     // check zone
@@ -155,10 +155,10 @@ func (r *Record) Update(rValues *Record) error {
     zQuery.ID = rPrivate.Zone
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone for record 'r.ID' not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'r.Zone' not found")
     }
     if zPrivate.Name == "external" {
-        if rQuery.Comment != rPrivate.Comment {
+        if rValues.Comment != rPrivate.Comment {
             return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] cannot update 'r.Comment' for records in the \"external\" zone")
         }
     }
@@ -176,7 +176,7 @@ func (r *Record) Delete() error {
     rQuery.ID = r.ID
     rPrivate := lookupRecord(rQuery)
     if rPrivate == nil {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] record 'r.ID' not found")
     }
 
     // check zone
@@ -184,7 +184,7 @@ func (r *Record) Delete() error {
     zQuery.ID = rPrivate.Zone
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil {
-        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] zone for record 'r.ID' not found")
+        return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] zone 'r.Zone' not found")
     }
     if zPrivate.Name == "external" {
         return errors.New("[ERROR][terraform-provider-hosts/api/r.Delete()] cannot delete records in the \"external\" zone")
@@ -269,6 +269,7 @@ func createRecord(rValues *Record) error {
         r.zoneRecord.record = r             // !!! beware of memory leaks
     }
 
+    log.Printf("[INFO][terraform-provider-hosts/api/createRecord()] created zone %d, record %q - %#v\n", r.Zone, r.Address, r.Names)
     return nil
 }
 
@@ -290,6 +291,9 @@ func readRecord(r *Record) (record *Record, err error) {
 
     // no computed fields
 
+    if record != nil {
+        log.Printf("[INFO][terraform-provider-hosts/api/readRecord()] read zone %d, record %q - %#v\n", record.Zone, record.Address, record.Names)
+    }
     return record, nil
 }
 
@@ -327,6 +331,7 @@ func updateRecord(r *Record, rValues *Record) error {
         r.zoneRecord.record = r             // !!! beware of memory leaks
     }
 
+    log.Printf("[INFO][terraform-provider-hosts/api/updateRecord()] updated zone %d, record %q - %#v\n", r.Zone, r.Address, r.Names)
     return nil
 }
 
@@ -351,17 +356,23 @@ func deleteRecord(r *Record) error {
         }
     }
 
+    // save for logging
+    zone := r.Zone
+    address := r.Address
+    names := r.Names
+
     // remove and zero record
     removeRecord(r)   // zeroes r.ID and r.id
 
     r.Zone       = 0
     r.Address    = ""
-    r.Names      = make([]string, 0)
+    r.Names      = []string(nil)
     r.Comment    = ""
     r.Notes      = ""
 
     r.managed    = false
 
+    log.Printf("[INFO][terraform-provider-hosts/api/deleteRecord()] deleted zone %d, record %q - %#v\n", zone, address, names)
     return nil
 }
 
@@ -413,20 +424,17 @@ func goScanRecord(z *Zone, zoneRecord *recordObject, lines <-chan string) chan b
             // update lines
             collected = append(collected, line)
         }
-
-        // calculate checksum for the lines
-        checksum := hash.Sum(nil)
-        newChecksum := hex.EncodeToString(checksum[:])
-
-        // update recordObject
-        zoneRecord.lines = collected
-
-        if zoneRecord.checksum == newChecksum {
+        if len(collected) == 0 {
             done <- true
             return
         }
 
-        zoneRecord.checksum = newChecksum
+        // calculate checksum for the lines
+        checksum := hash.Sum(nil)
+        zoneRecord.checksum = hex.EncodeToString(checksum[:])   // we cannot check if checksum changed because we need to parse the lines to know which record this is
+
+        // update recordObject
+        zoneRecord.lines = collected
 
         // process lines                                                        // at this moment we support only single-line records
 
@@ -461,6 +469,7 @@ func goScanRecord(z *Zone, zoneRecord *recordObject, lines <-chan string) chan b
         rQuery.Address = parts[0]
         rQuery.Names = parts[1:]
         r := lookupRecord(rQuery)
+
         if r == nil {
             // create record
             rQuery.Comment = comment

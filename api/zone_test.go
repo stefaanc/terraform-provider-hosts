@@ -131,7 +131,7 @@ func Test_LookupZone(t *testing.T) {
         // --------------------
 
         if zone != nil {
-            t.Errorf("[ LookupZone(zQuery).err ] expected: %s, actual: %#v", "<error>", zone)
+            t.Errorf("[ LookupZone(zQuery).err ] expected: %#v, actual: %#v", nil, zone)
         }
     })
 }
@@ -501,6 +501,13 @@ func Test_createZone(t *testing.T) {
 
         if err == nil {
             t.Errorf("[ createZone(zValues).err ] expected: %s, actual: %#v", "<error>", err)
+        }
+
+        // --------------------
+
+        z := lookupZone(zValues)
+        if z != nil {
+            t.Errorf("[ lookupZone(zValues) ] expected: %#v, actual: %#v", nil, z)
         }
 
         // --------------------
@@ -938,11 +945,6 @@ func Test_readZone(t *testing.T) {
         }
         f := lookupFile(fValues)
 
-        zQuery := new(Zone)
-        zQuery.File = f.ID
-        zQuery.Name = "my-zone-1"
-        z := lookupZone(zQuery)
-
         data = []byte(`
 # some data
 
@@ -951,6 +953,11 @@ func Test_readZone(t *testing.T) {
         if err != nil {
             t.Errorf("[ readZone() ] cannot write test-file")
         }
+
+        zQuery := new(Zone)
+        zQuery.File = f.ID
+        zQuery.Name = "my-zone-1"
+        z := lookupZone(zQuery)
 
         // --------------------
 

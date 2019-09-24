@@ -112,7 +112,7 @@ func Test_LookupFile(t *testing.T) {
         // --------------------
 
         if file != nil {
-            t.Errorf("[ LookupFile(fQuery) ] expected: %s, actual: %#v", "<error>", file)
+            t.Errorf("[ LookupFile(fQuery) ] expected: %#v, actual: %#v", nil, file)
         }
     })
 }
