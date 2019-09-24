@@ -10,7 +10,7 @@ import (
     "crypto/sha1"
     "encoding/hex"
     "io/ioutil"
-    //"log"
+    "log"
     "os"
     "strings"
     "testing"
@@ -2054,6 +2054,838 @@ func Test_deleteZone(t *testing.T) {
         // --------------------
 
         os.Remove(path)
+    })
+}
+ 
+//------------------------------------------------------------------------------
+
+func Test_renderZone(t *testing.T) {
+    var test string
+
+    test = "short-name"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        z := new(Zone)
+        z.Name = "short-name"
+
+        zo := new(zoneObject)
+        z.fileZone = zo
+
+        r1 := new(recordObject)
+        r1.lines = append(r1.lines, "")
+        addRecordObject(z, r1)
+        r2 := new(recordObject)
+        r2.lines = append(r2.lines, "# some data")
+        addRecordObject(z, r2)
+        r3 := new(recordObject)
+        r3.lines = append(r3.lines, "")
+        addRecordObject(z, r3)
+
+        expectedData := `##### Start Of Terraform Zone: short-name ######################################
+
+# some data
+
+##### End Of Terraform Zone: short-name ########################################
+`
+
+        // --------------------
+
+        renderZone(z)
+
+        // --------------------
+
+        if len(z.fileZone.lines) != 5 {
+            t.Errorf("[ z.fileZone.lines ] expected: %#v, actual: %#v", 5, len(z.fileZone.lines))
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if z.fileZone.checksum != expected {
+            t.Errorf("[ z.fileZone.checksum ] expected: %#v, actual: %#v", expected, z.fileZone.checksum)
+        }
+    })
+
+    test = "long-name"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        z := new(Zone)
+        z.Name = "very-very-very-very-very-very-very-very-very-very-long-name"
+
+        zo := new(zoneObject)
+        z.fileZone = zo
+
+        r1 := new(recordObject)
+        r1.lines = append(r1.lines, "")
+        addRecordObject(z, r1)
+        r2 := new(recordObject)
+        r2.lines = append(r2.lines, "# some data")
+        addRecordObject(z, r2)
+        r3 := new(recordObject)
+        r3.lines = append(r3.lines, "")
+        addRecordObject(z, r3)
+
+        expectedData := `##### Start Of Terraform Zone: very-very-very-very-very-very-very-very-very-very-long-name #####
+
+# some data
+
+##### End Of Terraform Zone: very-very-very-very-very-very-very-very-very-very-long-name #####
+`
+
+        // --------------------
+
+        renderZone(z)
+
+        // --------------------
+
+        if len(z.fileZone.lines) != 5 {
+            t.Errorf("[ z.fileZone.lines ] expected: %#v, actual: %#v", 5, len(z.fileZone.lines))
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if z.fileZone.checksum != expected {
+            t.Errorf("[ z.fileZone.checksum ] expected: %#v, actual: %#v", expected, z.fileZone.checksum)
+        }
+    })
+}
+ 
+//------------------------------------------------------------------------------
+
+func Test_goScanZone(t *testing.T) {
+    var test string
+
+    test = "scanned/no-lines"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone != nil {
+            t.Errorf("[ f.zones[0].zone ] expected: %#v, actual: %#v", nil, f.zones[0].zone)
+        }
+    })
+
+    test = "scanned/new-external-zone"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "",
+            "# some data",
+            "",
+        }
+
+        expectedData := `
+# some data
+
+`
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "external" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "scanned/updated-external-zone"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "",
+            "# some data",
+            "",
+        }
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        ls = []string{
+            "",
+            "# some updated data",
+            "",
+        }
+
+        expectedData := `
+# some updated data
+
+`
+
+        // --------------------
+
+        f.zones = make([]*zoneObject, 0)
+        zo = new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines = make(chan string)
+        done  = goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "external" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "scanned/rescan-no-change"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "",
+            "# some data",
+            "",
+        }
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        expectedData := `
+# some data
+
+`
+
+        // --------------------
+
+        f.zones = make([]*zoneObject, 0)
+        zo = new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines = make(chan string)
+        done  = goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "external" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "scanned/new-managed-zone"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "##### Start Of Terraform Zone: my-zone-1 #######################################",
+            "",
+            "# some data",
+            "",
+            "##### End Of Terraform Zone: my-zone-1 #########################################",
+        }
+
+        expectedData := `##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+`
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "my-zone-1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "scanned/updated-managed-zone"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "##### Start Of Terraform Zone: my-zone-1 #######################################",
+            "",
+            "# some data",
+            "",
+            "##### End Of Terraform Zone: my-zone-1 #########################################",
+        }
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        ls = []string{
+            "##### Start Of Terraform Zone: my-zone-1 #######################################",
+            "",
+            "# some updated data",
+            "",
+            "##### End Of Terraform Zone: my-zone-1 #########################################",
+        }
+
+
+        expectedData := `##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some updated data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+`
+
+        // --------------------
+
+        f.zones = make([]*zoneObject, 0)
+        zo = new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines = make(chan string)
+        done  = goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "my-zone-1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "anonymous-end-zone-marker/short-name"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "##### Start Of Terraform Zone: my-zone-1 #######################################",
+            "",
+            "# some data",
+            "",
+            "##### End Of Terraform Zone: ",
+        }
+
+        expectedData := `##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-1 #########################################
+`
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "my-zone-1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "my-zone-1", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "anonymous-end-zone-marker/long-name"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "##### Start Of Terraform Zone: very-very-very-very-very-very-very-very-very-very-my-zone-1 #####",
+            "",
+            "# some data",
+            "",
+            "##### End Of Terraform Zone: ",
+        }
+
+        expectedData := `##### Start Of Terraform Zone: very-very-very-very-very-very-very-very-very-very-my-zone-1 #####
+
+# some data
+
+##### End Of Terraform Zone: very-very-very-very-very-very-very-very-very-very-my-zone-1 #####
+`
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "very-very-very-very-very-very-very-very-very-very-my-zone-1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "very-very-very-very-very-very-very-very-very-very-my-zone-1", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "unexpected-end-zone-marker"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "##### Start Of Terraform Zone: my-zone-1 #######################################",
+            "",
+            "# some data",
+            "",
+            "##### End Of Terraform Zone: my-zone-2 #########################################",
+        }
+
+        expectedData := `##### Start Of Terraform Zone: my-zone-1 #######################################
+
+# some data
+
+##### End Of Terraform Zone: my-zone-2 #########################################
+`
+
+        // --------------------
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "my-zone-1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 3 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 3, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(expectedData))
+        expected := hex.EncodeToString(checksum[:])
+        if f.zones[0].checksum != expected {
+            t.Errorf("[ f.zones[0].checksum ] expected: %#v, actual: %#v", expected, f.zones[0].checksum)
+        }
+    })
+
+    test = "cleanup-deleted-records"
+    t.Run(test, func(t *testing.T) {
+
+        resetZoneTestEnv()
+
+        ls := []string{
+            "1.1.1.1 my-host-1",
+            "2.2.2.2 my-host-2",
+        }
+
+        f := new(File)
+        zo := new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines := make(chan string)
+        done  := goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        ls = []string{
+            "1.1.1.1 my-host-1",
+        }
+
+        // --------------------
+
+        f.zones = make([]*zoneObject, 0)
+        zo = new(zoneObject)
+        addZoneObject(f, zo)
+
+        lines = make(chan string)
+        done  = goScanZone(f, zo, lines)
+
+        for _, l := range ls {
+            lines <- l
+        }
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if f.zones[0].zone == nil {
+            t.Errorf("[ f.zones[0].zone ] expected: not %#v, actual: %#v", nil, f.zones[0].zone)
+        } else {
+
+            // --------------------
+
+            if f.zones[0].zone.Name != "external" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "external", f.zones[0].zone.Name)
+            }
+
+            // --------------------
+
+            if f.zones[0].zone.fileZone.zone != f.zones[0].zone {
+                t.Errorf("[ f.zones[0].zone.fileZone.lines ] expected: %#v, actual: %#v", f.zones[0].zone, f.zones[0].zone.fileZone.zone)
+            }
+
+            // --------------------
+
+            if len(f.zones[0].zone.records) != 1 {
+                t.Errorf("[ f.zones[0].zone.records ] expected: %#v, actual: %#v", 1, len(f.zones[0].zone.records))
+            }
+        }
+
+        // --------------------
+
+        rQuery := new(Record)
+        rQuery.Address = "1.1.1.1"
+        r := lookupRecord(rQuery)
+
+        if r == nil {
+            t.Errorf("[ goScanZone() > lookupRecord(1.1.1.1) ] expected: not %#v, actual: %#v", nil, r)
+        }
+
+        // --------------------
+
+        rQuery = new(Record)
+        rQuery.Address = "2.2.2.2"
+        r = lookupRecord(rQuery)
+
+        if r != nil {
+            t.Errorf("[ goScanZone() > lookupRecord(2.2.2.2) ] expected: %#v, actual: %#v", nil, r)
+            if r.zoneRecord != nil {
+                log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanZone()] r.Address: %q", r.Address)
+                log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanZone()] r.zoneRecord.lines:")
+                for i, line := range r.zoneRecord.lines {
+                    log.Printf("[DEBUG][terraform-provider-hosts/api/testing goScanZone()] %d: %q", i, line)
+                }
+            }
+        }
     })
 }
  

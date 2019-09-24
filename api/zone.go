@@ -454,6 +454,8 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
         zQuery.File = f.ID
         zQuery.Name = zone
         z := lookupZone(zQuery)
+
+        var oldChecksum string
         if z == nil {
             // create zone
             // zQuery.Notes   = ""   // notes are not saved in file
@@ -463,6 +465,9 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
             _ = createZone(zQuery)   // error cannot happen
             z = lookupZone(zQuery)
         } else {
+            // pickup old checksum
+            oldChecksum = z.fileZone.checksum
+
             // update zone
             zQuery.Notes   = z.Notes   // notes are not saved in file, need to pick up from old zone
 
@@ -503,7 +508,7 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
 
             if strings.HasPrefix(line, endZoneMarker) {
                 if len(line) == len(endZoneMarker) {
-                    // no zone name in end-marker - goscanFile probably inserted missing endZoneMarker
+                    // no zone name in end-marker - goScanFile probably inserted anonymous endZoneMarker
                     // render missing marker
                     line = endZoneMarker + zone + " #####"
                     padding := 80 - len(line)
@@ -537,14 +542,12 @@ func goScanZone(f *File, fileZone *zoneObject, lines <-chan string) chan bool {
 
         // calculate checksum for the lines
         checksum := hash.Sum(nil)
-        newChecksum := hex.EncodeToString(checksum[:])
+        fileZone.checksum = hex.EncodeToString(checksum[:])
 
-        if fileZone.checksum == newChecksum {
+        if fileZone.checksum == oldChecksum {
             done <- true
             return
         }
-
-        fileZone.checksum = newChecksum
 
         // process lines
         for _, zoneRecord := range z.records {

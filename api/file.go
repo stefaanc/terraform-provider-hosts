@@ -464,7 +464,7 @@ func goScanFile(hostsFile *fileObject, r io.Reader) chan bool {
             lines2 <- line
         }
         if err := scanner.Err(); err != nil {   // cannot happen at the moment - crash if code is modified
-            // // scanner error
+            // scanner error
             log.Fatal(err)
         }
 

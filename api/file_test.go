@@ -2117,7 +2117,7 @@ func Test_goScanFile(t *testing.T) {
         fo.file = nil    // !!! avoid memory leaks
     })
 
-    test = "scanned/unexpected-start-zone-marker"
+    test = "unexpected-start-zone-marker"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -2223,7 +2223,7 @@ func Test_goScanFile(t *testing.T) {
         fo.file = nil    // !!! avoid memory leaks
     })
 
-    test = "scanned/unexpected-end-zone-marker"
+    test = "unexpected-end-zone-marker"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -2286,7 +2286,7 @@ func Test_goScanFile(t *testing.T) {
         fo.file = nil    // !!! avoid memory leaks
     })
 
-    test = "scanned/missing-end-zone-marker"
+    test = "missing-end-zone-marker"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
@@ -2368,7 +2368,7 @@ func Test_goScanFile(t *testing.T) {
         fo.file = nil    // !!! avoid memory leaks
     })
 
-    test = "scanned/cleanup-deleted-zones"
+    test = "cleanup-deleted-zones"
     t.Run(test, func(t *testing.T) {
 
         resetFileTestEnv()
