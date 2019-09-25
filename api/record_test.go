@@ -275,7 +275,7 @@ func Test_CreateRecord(t *testing.T) {
         os.Remove(path)
     })
 
-    test = "already-exists"
+    test = "record-already-exists"
     t.Run(test, func(t *testing.T) {
 
         resetRecordTestEnv()
@@ -315,6 +315,59 @@ func Test_CreateRecord(t *testing.T) {
 
         if err == nil {
             t.Errorf("[ CreateRecord(r).err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "similar") {
+            t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "similar", err.Error())
+        } else if !strings.Contains(err.Error(), "already exists") {
+            t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "already exists", err.Error())
+        }
+
+        // --------------------
+
+        os.Remove(path)
+    })
+
+    test = "name-already-exists"
+    t.Run(test, func(t *testing.T) {
+
+        resetRecordTestEnv()
+
+        path := "_test-hosts.txt"
+
+        fValues := new(File)
+        fValues.Path = path
+        err := CreateFile(fValues)
+        if err != nil {
+            t.Errorf("[ CreateRecord() ] cannot create test-file")
+        }
+        f := lookupFile(fValues)
+
+        zValues := new(Zone)
+        zValues.File = f.ID
+        zValues.Name = "my-zone-1"
+        _ = CreateZone(zValues)
+        z := lookupZone(zValues)
+
+        r := new(Record)
+        r.Zone = z.ID
+        r.Address = "a1"
+        r.Names = []string{ "n1", "n2", "n3" }
+        addRecord(r)
+
+        // --------------------
+
+        rValues := new(Record)
+        rValues.Zone = z.ID
+        rValues.Address = "a2"
+        rValues.Names = []string{ "n2" }
+
+        err = CreateRecord(rValues)
+
+        // --------------------
+
+        if err == nil {
+            t.Errorf("[ CreateRecord(r).err ] expected: %s, actual: %#v", "<error>", err)
+        } else if !strings.Contains(err.Error(), "with name") {
+            t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "with name", err.Error())
         } else if !strings.Contains(err.Error(), "already exists") {
             t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "already exists", err.Error())
         }
@@ -2335,7 +2388,7 @@ func Test_goScanRecord(t *testing.T) {
         }
     })
 
-    test = "scanned/updated-record"
+    test = "scanned/updated-record/update-comment"
     t.Run(test, func(t *testing.T) {
 
         resetRecordTestEnv()
@@ -2404,6 +2457,194 @@ func Test_goScanRecord(t *testing.T) {
             // --------------------
 
             if z.records[0].record.Comment != " some other comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
+            }
+
+            // --------------------
+
+            if z.records[0].record.zoneRecord.record != z.records[0].record {
+                t.Errorf("[ z.records[0].record.zoneRecord.record ] expected: %#v, actual: %#v", z.records[0].record, z.records[0].record.zoneRecord.record)
+            }
+        }
+
+        // --------------------
+
+        if len(z.records[0].lines) != 1 {
+            t.Errorf("[ z.records[0].lines ] expected: %#v, actual: %#v", 1, z.records[0].lines)
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(l))
+        expected := hex.EncodeToString(checksum[:])
+        if z.records[0].checksum != expected {
+            t.Errorf("[ z.records[0].checksum ] expected: %#v, actual: %#v", expected, z.records[0].checksum)
+        }
+    })
+
+    test = "scanned/updated-record/drop-host"
+    t.Run(test, func(t *testing.T) {
+
+        resetRecordTestEnv()
+
+        l := "1.1.1.1   my-host-1 my-host-2   # some comment"
+
+        z := new(Zone)
+        ro := new(recordObject)
+        addRecordObject(z, ro)
+
+        lines := make(chan string)
+        done  := goScanRecord(z, ro, lines)
+
+        lines <- l
+
+        close(lines)
+        _ = <-done
+
+        l = "1.1.1.1   my-host-1   # some comment"
+
+        // --------------------
+
+        z.records = make([]*recordObject, 0)
+        ro = new(recordObject)
+        addRecordObject(z, ro)
+
+        lines = make(chan string)
+        done  = goScanRecord(z, ro, lines)
+
+        lines <- l
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if z.records[0].record == nil {
+            t.Errorf("[ z.records[0].record ] expected: not %#v, actual: %#v", nil, z.records[0].record)
+        } else {
+
+            // --------------------
+
+            if z.records[0].record.Address != "1.1.1.1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "1.1.1.1", z.records[0].record.Address)
+            }
+
+            // --------------------
+
+            if len(z.records[0].record.Names) != 1 {
+                t.Errorf("[ z.records[0].record.Names ] expected: not %#v, actual: %#v", 1, z.records[0].record.Names)
+            } else {
+
+                // --------------------
+
+                if z.records[0].record.Names[0] != "my-host-1" {
+                    t.Errorf("[ z.records[0].record.Names[0] ] expected: not %#v, actual: %#v", "my-host-1", z.records[0].record.Names[0])
+                }
+            }
+
+            // --------------------
+
+            if z.records[0].record.Comment != " some comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
+            }
+
+            // --------------------
+
+            if z.records[0].record.zoneRecord.record != z.records[0].record {
+                t.Errorf("[ z.records[0].record.zoneRecord.record ] expected: %#v, actual: %#v", z.records[0].record, z.records[0].record.zoneRecord.record)
+            }
+        }
+
+        // --------------------
+
+        if len(z.records[0].lines) != 1 {
+            t.Errorf("[ z.records[0].lines ] expected: %#v, actual: %#v", 1, z.records[0].lines)
+        }
+
+        // --------------------
+
+        checksum := sha1.Sum([]byte(l))
+        expected := hex.EncodeToString(checksum[:])
+        if z.records[0].checksum != expected {
+            t.Errorf("[ z.records[0].checksum ] expected: %#v, actual: %#v", expected, z.records[0].checksum)
+        }
+    })
+
+    test = "scanned/updated-record/add-host"
+    t.Run(test, func(t *testing.T) {
+
+        resetRecordTestEnv()
+
+        l := "1.1.1.1   my-host-1 my-host-2   # some comment"
+
+        z := new(Zone)
+        ro := new(recordObject)
+        addRecordObject(z, ro)
+
+        lines := make(chan string)
+        done  := goScanRecord(z, ro, lines)
+
+        lines <- l
+
+        close(lines)
+        _ = <-done
+
+        l = "1.1.1.1   my-host-1 my-host-2 my-host-3   # some comment"
+
+        // --------------------
+
+        z.records = make([]*recordObject, 0)
+        ro = new(recordObject)
+        addRecordObject(z, ro)
+
+        lines = make(chan string)
+        done  = goScanRecord(z, ro, lines)
+
+        lines <- l
+
+        close(lines)
+        _ = <-done
+
+        // --------------------
+
+        if z.records[0].record == nil {
+            t.Errorf("[ z.records[0].record ] expected: not %#v, actual: %#v", nil, z.records[0].record)
+        } else {
+
+            // --------------------
+
+            if z.records[0].record.Address != "1.1.1.1" {
+                t.Errorf("[ f.zones[0].zone.Name ] expected: not %#v, actual: %#v", "1.1.1.1", z.records[0].record.Address)
+            }
+
+            // --------------------
+
+            if len(z.records[0].record.Names) != 3 {
+                t.Errorf("[ z.records[0].record.Names ] expected: not %#v, actual: %#v", 3, z.records[0].record.Names)
+            } else {
+
+                // --------------------
+
+                if z.records[0].record.Names[0] != "my-host-1" {
+                    t.Errorf("[ z.records[0].record.Names[0] ] expected: not %#v, actual: %#v", "my-host-1", z.records[0].record.Names[0])
+                }
+
+                // --------------------
+
+                if z.records[0].record.Names[1] != "my-host-2" {
+                    t.Errorf("[ z.records[0].record.Names[1] ] expected: not %#v, actual: %#v", "my-host-2", z.records[0].record.Names[1])
+                }
+
+                // --------------------
+
+                if z.records[0].record.Names[2] != "my-host-3" {
+                    t.Errorf("[ z.records[0].record.Names[2] ] expected: not %#v, actual: %#v", "my-host-3", z.records[0].record.Names[2])
+                }
+            }
+
+            // --------------------
+
+            if z.records[0].record.Comment != " some comment" {
                 t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
             }
 

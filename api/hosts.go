@@ -88,6 +88,17 @@ func lookupFile(fQuery *File) (f *File) {
         return fQuery
     }
 
+    fs := queryFiles(fQuery)
+
+    if len(fs) != 1 {
+        // if more than 1 valid file, 'lookup' cannot decide which one to return
+        return nil
+    }
+
+    return fs[0]
+}
+
+func queryFiles(fQuery *File) (fs []*File) {
     if fQuery.ID != 0 {
         hosts.fileIndex.RLock()
         f := hosts.fileIndex.index[fileID(fQuery.ID)]
@@ -102,7 +113,7 @@ func lookupFile(fQuery *File) (f *File) {
             return nil
         }
 
-        return f
+        return []*File{ f }
     }
 
     if fQuery.Path != "" {
@@ -110,12 +121,7 @@ func lookupFile(fQuery *File) (f *File) {
         fs := hosts.fileIndex.paths[fQuery.Path]
         hosts.fileIndex.RUnlock()
 
-        if len(fs) != 1 {
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }
-
-        return fs[0]
+        return fs
     }
 
     return nil
@@ -194,6 +200,17 @@ func lookupZone(zQuery *Zone) (z *Zone) {
         return zQuery
     }
 
+    zs := queryZones(zQuery)
+
+    if len(zs) != 1 {
+        // if more than 1 valid zone, 'lookup' cannot decide which one to return
+        return nil
+    }
+
+    return zs[0]
+}
+
+func queryZones(zQuery *Zone) (zs []*Zone) {
     if zQuery.ID != 0 {
         hosts.zoneIndex.RLock()
         z := hosts.zoneIndex.index[zoneID(zQuery.ID)]
@@ -211,7 +228,7 @@ func lookupZone(zQuery *Zone) (z *Zone) {
             return nil
         }
 
-        return z
+        return []*Zone{z}
     }
 
     if zQuery.Name != "" {
@@ -237,13 +254,8 @@ func lookupZone(zQuery *Zone) (z *Zone) {
                 return nil
             }
         }
-        
-        if len(zs) != 1 {
-            // if more than 1 valid zone, 'get' cannot decide which one to return
-            return nil
-        }
 
-        return zs[0]
+        return zs
     }
 
     if zQuery.File != 0 {
@@ -251,12 +263,7 @@ func lookupZone(zQuery *Zone) (z *Zone) {
         zs := hosts.zoneIndex.files[fileID(zQuery.File)]
         hosts.zoneIndex.RUnlock()
 
-        if len(zs) != 1 {
-            // if more than 1 valid zone, 'get' cannot decide which one to return
-            return nil
-        }
-
-        return zs[0]
+        return zs
     }
 
     return nil
@@ -339,6 +346,17 @@ func lookupRecord(rQuery *Record) (r *Record) {
         return rQuery
     }
 
+    rs := queryRecords(rQuery)
+
+    if len(rs) != 1 {
+        // if more than 1 valid record, 'lookup' cannot decide which one to return
+        return nil
+    }
+
+    return rs[0]
+}
+
+func queryRecords(rQuery *Record) (rs []*Record) {
     if rQuery.ID != 0 {
         hosts.recordIndex.RLock()
         r := hosts.recordIndex.index[recordID(rQuery.ID)]
@@ -376,7 +394,7 @@ func lookupRecord(rQuery *Record) (r *Record) {
             }
         }
 
-        return r
+        return []*Record{ r }
     }
 
     if len(rQuery.Names) > 0 {
@@ -448,12 +466,7 @@ func lookupRecord(rQuery *Record) (r *Record) {
             }
         }
 
-        if len(rs) != 1 {
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }
-
-        return rs[0]
+        return rs
     }
 
     if rQuery.Address != "" {
@@ -481,12 +494,7 @@ func lookupRecord(rQuery *Record) (r *Record) {
             }
         }
 
-        if len(rs) != 1 {
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }
-
-        return rs[0]
+        return rs
     }
 
     if rQuery.Zone != 0 {
@@ -494,12 +502,7 @@ func lookupRecord(rQuery *Record) (r *Record) {
         rs := hosts.recordIndex.zones[zoneID(rQuery.Zone)]
         hosts.recordIndex.RUnlock()
 
-        if len(rs) != 1 {
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }
-
-        return rs[0]
+        return rs
     }
 
     return nil

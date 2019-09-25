@@ -10,6 +10,7 @@ import (
     "crypto/sha1"
     "errors"
     "encoding/hex"
+    "fmt"
     "io"
     "log"
     "strings"
@@ -88,6 +89,17 @@ func CreateRecord(rValues *Record) error {
     rPrivate := lookupRecord(rQuery)
     if rPrivate != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with similar properties already exists")
+    }
+
+    for _, name := range rValues.Names {
+        // check addresses for every name
+        rQuery := new(Record)
+        rQuery.Names   = []string{ name }
+        rs := queryRecords(rQuery)
+        if len(rs) > 0 && rs[0].Address != rValues.Address {
+            message := fmt.Sprintf("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with name %q but with different address %q already exists", name, rs[0].Address)
+            return errors.New(message)
+        }
     }
 
     // take ownership
@@ -470,7 +482,7 @@ func goScanRecord(z *Zone, zoneRecord *recordObject, lines <-chan string) chan b
         rQuery.Names = parts[1:]
         r := lookupRecord(rQuery)
 
-        if r == nil {
+        if r == nil || len(r.Names) != len (rQuery.Names) {
             // create record
             rQuery.Comment = comment
             // rQuery.Notes   = ""   // notes are not saved in file
