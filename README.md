@@ -44,7 +44,7 @@ Optional:
    This will build the provider and put it in 
    - `%AppData%\terraform.d\plugins` on Windows
    - `$HOME\.terraform.d\plugins` on Linux
-
+<br/>
    > :bulb:  
    > The makefile provides more commands: `tidy`, `test`, `log`, `report`, `testacc`, `build`, ...
     
@@ -58,8 +58,7 @@ Optional:
 
    - go to [the releases tab on github](https://github.com/stefaanc/terraform-provider-hosts/releases)
    - download the file that is appropriate for your machine
-
-
+<br/>
    > :bulb:  
    > Alternatively, you can try our latest release-in-progress under the `releases` folder.  No guarantee though this will be a fully working provider.
 
