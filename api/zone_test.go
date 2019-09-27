@@ -42,7 +42,6 @@ func Test_LookupZone(t *testing.T) {
         z.File = 42
         z.Name = "z"
         z.Notes = "..."
-        z.managed = true
         z.fileZone = new(zoneObject)
         z.records = append(z.records, new(recordObject))
         addZone(z)
@@ -94,12 +93,6 @@ func Test_LookupZone(t *testing.T) {
 
             if zone.id != 0 {
                t.Errorf("[ LookupZone(zQuery).id ] expected: %#v, actual: %#v", 0, zone)
-            }
-
-            // --------------------
-
-            if zone.managed != false {
-                t.Errorf("[ LookupZone(zQuery).managed ] expected: %#v, actual: %#v", false, zone.managed)
             }
 
             // --------------------
@@ -374,7 +367,6 @@ func Test_createZone(t *testing.T) {
         zValues.File = f.ID
         zValues.Name = "z"
         zValues.Notes = "..."
-        zValues.managed = true
 
         err = createZone(zValues)
 
@@ -419,12 +411,6 @@ func Test_createZone(t *testing.T) {
 
             if z.Notes != zValues.Notes {
                 t.Errorf("[ lookupZone(zValues).Notes ] expected: %#v, actual: %#v", zValues.Notes, z.Notes)
-            }
-
-            // --------------------
-
-            if z.managed != zValues.managed {
-                t.Errorf("[ lookupZone(zValues).managed ] expected: %#v, actual: %#v", zValues.managed, z.managed)
             }
 
             // --------------------
@@ -627,7 +613,6 @@ func Test_zRead(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
         z.Notes = "..."
-        z.managed = true
 
         // --------------------
 
@@ -673,12 +658,6 @@ func Test_zRead(t *testing.T) {
 
             if zone.Notes != z.Notes {
                 t.Errorf("[ z.Read().zone.Notes ] expected: %#v, actual: %#v", z.Notes, zone.Notes)
-            }
-
-            // --------------------
-
-            if zone.managed != false {
-                t.Errorf("[ readZone(z).zone.Notes ] expected: %#v, actual: %#v", false, zone.managed)
             }
 
             // --------------------
@@ -783,7 +762,6 @@ func Test_readZone(t *testing.T) {
         zQuery.Name = "external"
         z := lookupZone(zQuery)
         z.Notes = "..."
-        z.managed = true
 
         // --------------------
 
@@ -829,12 +807,6 @@ func Test_readZone(t *testing.T) {
 
             if zone.Notes != z.Notes {
                 t.Errorf("[ readZone(z).zone.Notes ] expected: %#v, actual: %#v", z.Notes, zone.Notes)
-            }
-
-            // --------------------
-
-            if zone.managed != z.managed {
-                t.Errorf("[ readZone(z).zone.Notes ] expected: %#v, actual: %#v", z.managed, zone.managed)
             }
 
             // --------------------
@@ -1090,7 +1062,6 @@ func Test_zUpdate(t *testing.T) {
         zQuery.Name = "my-zone-1"
         z := lookupZone(zQuery)
         z.Notes = "..."
-        z.managed = true
 
         z.records[1].lines[0] = "# some updated data"
         checksum := sha1.Sum([]byte(z.records[1].lines[0]))
@@ -1212,8 +1183,8 @@ func Test_updateZone(t *testing.T) {
         zQuery.File = f.ID
         zQuery.Name = "my-zone-1"
         z := lookupZone(zQuery)
+        zid := z.id
         z.Notes = "..."
-        z.managed = true
 
         z.records[1].lines[0] = "# some updated data"
         checksum := sha1.Sum([]byte(z.records[1].lines[0]))
@@ -1250,8 +1221,8 @@ func Test_updateZone(t *testing.T) {
 
             // --------------------
 
-            if z.id != 2 {
-                t.Errorf("[ lookupZone(zValues).id ] expected: %#v, actual: %#v", 2, z.id)
+            if z.id != zid {
+                t.Errorf("[ lookupZone(zValues).id ] expected: %#v, actual: %#v", zid, z.id)
             }
 
             // --------------------
@@ -1276,12 +1247,6 @@ func Test_updateZone(t *testing.T) {
 
             if z.Notes != zValues.Notes {
                 t.Errorf("[ lookupZone(zValues).Notes ] expected: %#v, actual: %#v", zValues.Notes, z.Notes)
-            }
-
-            // --------------------
-
-            if z.managed != true {
-                t.Errorf("[ lookupZone(zValues).managed ] expected: %#v, actual: %#v", true, z.managed)
             }
 
             // --------------------
@@ -1360,8 +1325,8 @@ func Test_updateZone(t *testing.T) {
         zQuery.File = f.ID
         zQuery.Name = "my-zone-1"
         z := lookupZone(zQuery)
+        zid := z.id
         z.Notes = "..."
-        z.managed = true
 
         expectedData := []byte(`##### Start Of Terraform Zone: my-zone-1 #######################################
 
@@ -1394,8 +1359,8 @@ func Test_updateZone(t *testing.T) {
 
             // --------------------
 
-            if z.id != 2 {
-                t.Errorf("[ lookupZone(zValues).id ] expected: %#v, actual: %#v", 2, z.id)
+            if z.id != zid {
+                t.Errorf("[ lookupZone(zValues).id ] expected: %#v, actual: %#v", zid, z.id)
             }
 
             // --------------------
@@ -1420,12 +1385,6 @@ func Test_updateZone(t *testing.T) {
 
             if z.Notes != zValues.Notes {
                 t.Errorf("[ lookupZone(zValues).Notes ] expected: %#v, actual: %#v", zValues.Notes, z.Notes)
-            }
-
-            // --------------------
-
-            if z.managed != true {
-                t.Errorf("[ lookupZone(zValues).managed ] expected: %#v, actual: %#v", true, z.managed)
             }
 
             // --------------------
@@ -1849,7 +1808,6 @@ func Test_deleteZone(t *testing.T) {
         z := lookupZone(zQuery)
         zid := z.ID
         z.Notes = "..."
-        z.managed = true
 
         // --------------------
 
@@ -1889,12 +1847,6 @@ func Test_deleteZone(t *testing.T) {
 
         if z.Notes != "" {
             t.Errorf("[ z.Notes ] expected: %#v, actual: %#v", "", z.Notes)
-        }
-
-        // --------------------
-
-        if z.managed != false {
-            t.Errorf("[ z.managed ] expected: %#v, actual: %#v", false, z.managed)
         }
 
         // --------------------

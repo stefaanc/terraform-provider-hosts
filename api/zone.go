@@ -27,7 +27,6 @@ type Zone struct {
     Notes    string
     // private
     id       zoneID
-    managed  bool
     fileZone *zoneObject       // !!! beware of memory leaks
     records  []*recordObject   // !!! beware of memory leaks
 }
@@ -76,9 +75,6 @@ func CreateZone(zValues *Zone) error {
     if zPrivate != nil {
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] another zone with similar properties already exists")
     }
-
-    // take ownership
-    zValues.managed = true
 
     return createZone(zValues)   // zValues.ID will be ignored
 }
@@ -214,8 +210,6 @@ func createZone(zValues *Zone) error {
     z.Name     = zValues.Name
     z.Notes    = zValues.Notes
 
-    z.managed  = zValues.managed   // requested by CreateZone()
-
     addZone(z)   // adds z.ID and z.id
 
     if zValues.fileZone == nil {   // if requested by CreateZone()
@@ -344,7 +338,6 @@ func deleteZone(z *Zone) error {
     z.Name     = ""
     z.Notes    = ""
 
-    z.managed  = false
     for _, recordObject := range z.records {   // !!! avoid memory leaks
         recordObject.record = nil
     }

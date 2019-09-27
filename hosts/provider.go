@@ -9,9 +9,8 @@ package hosts
 import (
     "runtime"
 
-//    "github.com/hashicorp/terraform/helper/mutexkv"
-    "github.com/hashicorp/terraform/helper/schema"
-    "github.com/hashicorp/terraform/terraform"
+    "github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+    "github.com/hashicorp/terraform-plugin-sdk/terraform"
 )
 
 func Provider() terraform.ResourceProvider {
@@ -41,9 +40,9 @@ func Provider() terraform.ResourceProvider {
             "hosts_record": dataSourceHostsRecord(),
         },
 
-//        ResourcesMap: map[string]*schema.Resource {
-//            "hosts_record": resourceHostsRecord(),
-//        },
+        ResourcesMap: map[string]*schema.Resource {
+            "hosts_record": resourceHostsRecord(),
+        },
 
         ConfigureFunc: providerConfigure,
     }
@@ -51,12 +50,9 @@ func Provider() terraform.ResourceProvider {
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
     config := Config{
-        File: d.Get("file").(string),
-        Zone: d.Get("zone").(string),
+        file: d.Get("file").(string),
+        zone: d.Get("zone").(string),
     }
 
     return config.Client()
 }
-
-//var shellMutexKV = mutexkv.NewMutexKV()
-//const shellScriptMutexKey = "shellScriptMutexKey"

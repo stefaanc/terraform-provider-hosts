@@ -1,4 +1,6 @@
 /**/_*
+/**/.golangcilint*
+/**/.terraform
 /**/*.tfstate
 /**/*.tfstate.backup
 

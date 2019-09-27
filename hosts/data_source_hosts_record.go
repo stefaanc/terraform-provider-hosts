@@ -7,12 +7,13 @@
 package hosts
 
 import (
+    "errors"
     "log"
     "strings"
 
-    "github.com/hashicorp/terraform/helper/schema"
+    "github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
-//    "github.com/stefaanc/terraform-provider-hosts/api"
+    "github.com/stefaanc/terraform-provider-hosts/api"
 )
 
 func dataSourceHostsRecord() *schema.Resource {
@@ -20,17 +21,25 @@ func dataSourceHostsRecord() *schema.Resource {
         Read:   dataSourceHostsRecordRead,
 
         Schema: map[string]*schema.Schema {
-            "query_name": &schema.Schema {
+            "name": &schema.Schema {
                 Type:     schema.TypeString,
+                StateFunc: func(val interface{}) string {
+                    return strings.ToLower(val.(string))
+                },
+                DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+                    if old == strings.ToLower(new) {
+                        return true 
+                    }
+                    return false
+                },
                 Required: true,
                 ForceNew: true,
             },
-
-            "id":  &schema.Schema {
-                Type:     schema.TypeString,
+            
+            "record_id": &schema.Schema {
+                Type:     schema.TypeInt,
                 Computed: true,
             },
-            
             "address": &schema.Schema {
                 Type:     schema.TypeString,
                 Computed: true,
@@ -46,16 +55,7 @@ func dataSourceHostsRecord() *schema.Resource {
                 Type:     schema.TypeString,
                 Computed: true,
             },
-
-            "domain": &schema.Schema {
-                Type:     schema.TypeString,
-                Computed: true,
-            },
-            "rootdomain": &schema.Schema {
-                Type:     schema.TypeString,
-                Computed: true,
-            },
-            "fqdn": &schema.Schema {
+            "notes": &schema.Schema {
                 Type:     schema.TypeString,
                 Computed: true,
             },
@@ -64,36 +64,39 @@ func dataSourceHostsRecord() *schema.Resource {
 }
 
 func dataSourceHostsRecordRead(d *schema.ResourceData, m interface{}) error {
-//    h := m.(*api.Hosts)
-    query_name := strings.ToLower(d.Get("query_name").(string))
+    zone := m.(*api.Zone)
+    name := d.Get("name").(string)
 
-    log.Printf("[INFO][hosts] reading hosts-record for '%s'\n", query_name)
+    log.Printf(`[INFO][terraform-provider-hosts] reading hosts-record %#v
+                    [INFO][terraform-provider-hosts]     zone: %#v
+`   , name, zone.Name)
 
-//    record := new(api.Record)
-//    record.Name = query_name
+    rQuery := new(api.Record)
+    rQuery.Zone = zone.ID
+    rQuery.Names = []string{ name }
+    r := api.LookupRecord(rQuery)
+    if r == nil {
+        d.SetId("")
+        log.Printf("[ERROR][terraform-provider-hosts] cannot find hosts-record %#v\n", name)
+        return errors.New("[ERROR][terraform-provider-hosts/hosts/dataSourceHostsRecordRead] cannot find hosts-record")
+    }
 
-//    r, err := api.ReadRecord(h, record)
-//    if err != nil {
-//        log.Printf("[ERROR][hosts] cannot read hosts-record, error:\n")
-//        log.Printf("[WARNING][hosts]     Error: '%s'\n", err.Error())
-//        return err
-//    }
+    record, err := r.Read()
+    if err != nil {
+        log.Printf("[ERROR][terraform-provider-hosts] cannot read hosts-record %#v\n", name)
+        return err
+    }
 
-    // computed fields
-//    d.Set("address", r.Address)
-//    d.Set("name", r.Name)
-//    d.Set("aliases", r.Aliases)
-//    d.Set("comment", r.Comment)
-//    d.Set("host", r.Host)
-//    d.Set("domain", r.Domain)
-//    d.Set("rootdomain", r.Rootdomain)
-//    d.Set("fqdn", r.FQDN)
+    // set computed fields
+    _ = d.Set("record_id", record.ID)
+    _ = d.Set("address", record.Address)
+    _ = d.Set("names", record.Names)
+    _ = d.Set("comment", record.Comment)
+    _ = d.Set("notes", record.Notes)
 
-    // id
-//    d.SetId(r.Name)
+    // set id
+    d.SetId(name)
 
-    log.Printf("[INFO][hosts] read hosts-record\n")
-
+    log.Printf("[INFO][terraform-provider-hosts] read hosts-record %#v\n", name)
     return nil
-//    return err
 }

@@ -39,9 +39,9 @@ tidy:
 
 $(COVER_TMP_FILE) $(TEST_LOG_FILE): $(GO_BUILD_FILES) $(GO_TEST_FILES)
 ifneq (,$(IS_WINDOWS))
-	PowerShell -NoProfile "go test ./... -v -coverprofile $(COVER_TMP_FILE) > $(TEST_LOG_FILE); exit 0"
+	PowerShell -NoProfile "go test ./... -v -coverprofile $(COVER_TMP_FILE) > $(TEST_LOG_FILE); if ( $$LASTEXITCODE -ne 0 ) { Get-Content $(TEST_LOG_FILE) }; exit $$LASTEXITCODE"
 else
-	go test ./... -v -coverprofile $(COVER_TMP_FILE) > $(TEST_LOG_FILE)
+	go test ./... -v -coverprofile $(COVER_TMP_FILE) > $(TEST_LOG_FILE); if [ $? != 0 ] ; then cat $(TEST_LOG_FILE) ; fi
 endif
 
 $(COVER_LOG_FILE) $(COVER_HTML_FILE): $(COVER_TMP_FILE)

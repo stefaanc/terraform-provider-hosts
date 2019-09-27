@@ -694,7 +694,18 @@ func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
         return fQuery
     }</span>
 
-    <span class="cov8" title="1">if fQuery.ID != 0 </span><span class="cov8" title="1">{
+    <span class="cov8" title="1">fs := queryFiles(fQuery)
+
+    if len(fs) != 1 </span><span class="cov8" title="1">{
+        // if more than 1 valid file, 'lookup' cannot decide which one to return
+        return nil
+    }</span>
+
+    <span class="cov8" title="1">return fs[0]</span>
+}
+
+func queryFiles(fQuery *File) (fs []*File) <span class="cov8" title="1">{
+    if fQuery.ID != 0 </span><span class="cov8" title="1">{
         hosts.fileIndex.RLock()
         f := hosts.fileIndex.index[fileID(fQuery.ID)]
         hosts.fileIndex.RUnlock()
@@ -708,7 +719,7 @@ func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
             return nil
         }</span>
 
-        <span class="cov8" title="1">return f</span>
+        <span class="cov8" title="1">return []*File{ f }</span>
     }
 
     <span class="cov8" title="1">if fQuery.Path != "" </span><span class="cov8" title="1">{
@@ -716,13 +727,8 @@ func lookupFile(fQuery *File) (f *File) <span class="cov8" title="1">{
         fs := hosts.fileIndex.paths[fQuery.Path]
         hosts.fileIndex.RUnlock()
 
-        if len(fs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }</span>
-
-        <span class="cov8" title="1">return fs[0]</span>
-    }
+        return fs
+    }</span>
 
     <span class="cov8" title="1">return nil</span>
 }
@@ -800,7 +806,18 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
         return zQuery
     }</span>
 
-    <span class="cov8" title="1">if zQuery.ID != 0 </span><span class="cov8" title="1">{
+    <span class="cov8" title="1">zs := queryZones(zQuery)
+
+    if len(zs) != 1 </span><span class="cov8" title="1">{
+        // if more than 1 valid zone, 'lookup' cannot decide which one to return
+        return nil
+    }</span>
+
+    <span class="cov8" title="1">return zs[0]</span>
+}
+
+func queryZones(zQuery *Zone) (zs []*Zone) <span class="cov8" title="1">{
+    if zQuery.ID != 0 </span><span class="cov8" title="1">{
         hosts.zoneIndex.RLock()
         z := hosts.zoneIndex.index[zoneID(zQuery.ID)]
         hosts.zoneIndex.RUnlock()
@@ -817,7 +834,7 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
             return nil
         }</span>
 
-        <span class="cov8" title="1">return z</span>
+        <span class="cov8" title="1">return []*Zone{z}</span>
     }
 
     <span class="cov8" title="1">if zQuery.Name != "" </span><span class="cov8" title="1">{
@@ -843,13 +860,8 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
                 return nil
             }</span>
         }
-        
-        <span class="cov8" title="1">if len(zs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid zone, 'get' cannot decide which one to return
-            return nil
-        }</span>
 
-        <span class="cov8" title="1">return zs[0]</span>
+        <span class="cov8" title="1">return zs</span>
     }
 
     <span class="cov8" title="1">if zQuery.File != 0 </span><span class="cov8" title="1">{
@@ -857,13 +869,8 @@ func lookupZone(zQuery *Zone) (z *Zone) <span class="cov8" title="1">{
         zs := hosts.zoneIndex.files[fileID(zQuery.File)]
         hosts.zoneIndex.RUnlock()
 
-        if len(zs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid zone, 'get' cannot decide which one to return
-            return nil
-        }</span>
-
-        <span class="cov8" title="1">return zs[0]</span>
-    }
+        return zs
+    }</span>
 
     <span class="cov8" title="1">return nil</span>
 }
@@ -945,7 +952,18 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
         return rQuery
     }</span>
 
-    <span class="cov8" title="1">if rQuery.ID != 0 </span><span class="cov8" title="1">{
+    <span class="cov8" title="1">rs := queryRecords(rQuery)
+
+    if len(rs) != 1 </span><span class="cov8" title="1">{
+        // if more than 1 valid record, 'lookup' cannot decide which one to return
+        return nil
+    }</span>
+
+    <span class="cov8" title="1">return rs[0]</span>
+}
+
+func queryRecords(rQuery *Record) (rs []*Record) <span class="cov8" title="1">{
+    if rQuery.ID != 0 </span><span class="cov8" title="1">{
         hosts.recordIndex.RLock()
         r := hosts.recordIndex.index[recordID(rQuery.ID)]
         hosts.recordIndex.RUnlock()
@@ -982,7 +1000,7 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
             }</span>
         }
 
-        <span class="cov8" title="1">return r</span>
+        <span class="cov8" title="1">return []*Record{ r }</span>
     }
 
     <span class="cov8" title="1">if len(rQuery.Names) &gt; 0 </span><span class="cov8" title="1">{
@@ -1054,12 +1072,7 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
             }</span>
         }
 
-        <span class="cov8" title="1">if len(rs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }</span>
-
-        <span class="cov8" title="1">return rs[0]</span>
+        <span class="cov8" title="1">return rs</span>
     }
 
     <span class="cov8" title="1">if rQuery.Address != "" </span><span class="cov8" title="1">{
@@ -1087,12 +1100,7 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
             }</span>
         }
 
-        <span class="cov8" title="1">if len(rs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }</span>
-
-        <span class="cov8" title="1">return rs[0]</span>
+        <span class="cov8" title="1">return rs</span>
     }
 
     <span class="cov8" title="1">if rQuery.Zone != 0 </span><span class="cov8" title="1">{
@@ -1100,13 +1108,8 @@ func lookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
         rs := hosts.recordIndex.zones[zoneID(rQuery.Zone)]
         hosts.recordIndex.RUnlock()
 
-        if len(rs) != 1 </span><span class="cov8" title="1">{
-            // if more than 1 valid record, 'get' cannot decide which one to return
-            return nil
-        }</span>
-
-        <span class="cov8" title="1">return rs[0]</span>
-    }
+        return rs
+    }</span>
 
     <span class="cov8" title="1">return nil</span>
 }
@@ -1227,6 +1230,7 @@ import (
     "crypto/sha1"
     "errors"
     "encoding/hex"
+    "fmt"
     "io"
     "log"
     "strings"
@@ -1244,18 +1248,27 @@ type Record struct {
     // read-writeMany
     Comment    string
     Notes      string
-    // readOnly        //-computed
-//    FQDN         string
-//    Domain       string
-//    RootDomain   string
     // private
     id         recordID
-    managed    bool
     zoneRecord *recordObject   // !!! beware of memory leaks
 }
 
 func LookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
-    rPrivate := lookupRecord(rQuery)
+    // convert names to lower-case
+    rQ := new(Record)
+    if len(rQuery.Names) == 0 </span><span class="cov8" title="1">{
+        rQ = rQuery
+    }</span> else<span class="cov8" title="1"> {
+        rQ.ID      = rQuery.ID
+        rQ.Zone    = rQuery.Zone
+        rQ.Address = rQuery.Address
+        rQ.Names   = make([]string, len(rQuery.Names))
+        for i, _ := range rQuery.Names </span><span class="cov8" title="1">{
+            rQ.Names[i] = strings.ToLower(rQuery.Names[i])
+        }</span>
+    }
+
+    <span class="cov8" title="1">rPrivate := lookupRecord(rQ)
     if rPrivate == nil </span><span class="cov8" title="1">{
         return nil
     }</span>
@@ -1275,19 +1288,34 @@ func LookupRecord(rQuery *Record) (r *Record) <span class="cov8" title="1">{
 }
 
 func CreateRecord(rValues *Record) error <span class="cov8" title="1">{
-    if rValues.Zone == 0 </span><span class="cov8" title="1">{
+    // convert names to lower-case
+    rV := new(Record)
+    if len(rValues.Names) == 0 </span><span class="cov8" title="1">{
+        rV = rValues
+    }</span> else<span class="cov8" title="1"> {
+        rV.Zone    = rValues.Zone
+        rV.Address = rValues.Address
+        rV.Names   = make([]string, len(rValues.Names))
+        for i, _ := range rValues.Names </span><span class="cov8" title="1">{
+            rV.Names[i] = strings.ToLower(rValues.Names[i])
+        }</span>
+        <span class="cov8" title="1">rV.Comment = rValues.Comment
+        rV.Notes   = rValues.Notes</span>
+    }
+
+    <span class="cov8" title="1">if rV.Zone == 0 </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Zone'")
     }</span>
-    <span class="cov8" title="1">if rValues.Address == "" </span><span class="cov8" title="1">{
+    <span class="cov8" title="1">if rV.Address == "" </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Address'")
     }</span>
-    <span class="cov8" title="1">if len(rValues.Names) == 0 </span><span class="cov8" title="1">{
+    <span class="cov8" title="1">if len(rV.Names) == 0 </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] missing 'rValues.Names'")
     }</span>
 
     // check zone
     <span class="cov8" title="1">zQuery := new(Zone)
-    zQuery.ID = rValues.Zone
+    zQuery.ID = rV.Zone
     zPrivate := lookupZone(zQuery)
     if zPrivate == nil </span><span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/r.Update(rValues)] zone 'rValues.Zone' not found")
@@ -1296,21 +1324,22 @@ func CreateRecord(rValues *Record) error <span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] cannot create records in the \"external\" zone")
     }</span>
 
-    // lookup all indexed fields except ID
-    <span class="cov8" title="1">rQuery := new(Record)
-    rQuery.Zone    = rValues.Zone
-    rQuery.Address = rValues.Address
-    rQuery.Names   = make([]string, len(rValues.Names))
-    copy(rQuery.Names, rValues.Names)
-    rPrivate := lookupRecord(rQuery)
-    if rPrivate != nil </span><span class="cov8" title="1">{
-        return errors.New("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with similar properties already exists")
-    }</span>
+    // lookup all names
+    <span class="cov8" title="1">for _, name := range rV.Names </span><span class="cov8" title="1">{
+        // check addresses for every name
+        rQuery := new(Record)
+        rQuery.Names = []string{ strings.ToLower(name) }
+        rs := queryRecords(rQuery)
+        if len(rs) &gt; 0 </span><span class="cov8" title="1">{
+            if rs[0].Address == rV.Address </span><span class="cov8" title="1">{
+                return fmt.Errorf("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with name %q already exists", name)
+            }</span> else<span class="cov8" title="1"> {
+                return fmt.Errorf("[ERROR][terraform-provider-hosts/api/CreateRecord(rValues)] another record with name %q but with different address %q already exists", name, rs[0].Address)
+            }</span>
+        }
+    }
 
-    // take ownership
-    <span class="cov8" title="1">rValues.managed = true
-
-    return createRecord(rValues)</span>   // rValues.ID will be ignored
+    <span class="cov8" title="1">return createRecord(rV)</span>   // rV.ID will be ignored
 }
 
 func (r *Record) Read() (record *Record, err error) <span class="cov8" title="1">{
@@ -1452,8 +1481,6 @@ func createRecord(rValues *Record) error <span class="cov8" title="1">{
     r.Comment    = rValues.Comment
     r.Notes      = rValues.Notes
 
-    r.managed    = rValues.managed      // requested by CreateRecord()
-
     addRecord(r)   // updates r.ID and r.id
 
     if rValues.zoneRecord == nil </span><span class="cov8" title="1">{   // if requested by CreateRecord()
@@ -1524,23 +1551,25 @@ func updateRecord(r *Record, rValues *Record) error <span class="cov8" title="1"
     r.Notes    = rValues.Notes
 
     if rValues.zoneRecord == nil || r == rValues </span><span class="cov8" title="1">{   // if requested by r.Update() or if forcing a render/write
-        // render record to calculate new checksum
-        renderRecord(r)   // updates lines &amp; checksum
-        
-        if r.zoneRecord.checksum != oldChecksum </span><span class="cov8" title="1">{
-            // update zone
-            zQuery := new(Zone)
-            zQuery.ID = r.Zone
-            z := lookupZone(zQuery)
-            err := updateZone(z, z)
-            if err != nil </span><span class="cov8" title="1">{
-                // restore consistent state
-                r.Comment = comment
-                r.Notes   = notes
-                renderRecord(r)
+        zQuery := new(Zone)
+        zQuery.ID = r.Zone
+        z := lookupZone(zQuery)
+        if z.Name != "external" </span><span class="cov8" title="1">{
+            // render record to calculate new checksum
+            renderRecord(r)   // updates lines &amp; checksum
+            
+            if r.zoneRecord.checksum != oldChecksum </span><span class="cov8" title="1">{
+                // update zone
+                err := updateZone(z, z)
+                if err != nil </span><span class="cov8" title="1">{
+                    // restore consistent state
+                    r.Comment = comment
+                    r.Notes   = notes
+                    renderRecord(r)
 
-                return err
-            }</span>
+                    return err
+                }</span>
+            }
         }
     } else<span class="cov8" title="1"> {                         // requested by goScanRecord()
         // update record &amp; recordObject
@@ -1587,8 +1616,6 @@ func deleteRecord(r *Record) error <span class="cov8" title="1">{
     r.Comment    = ""
     r.Notes      = ""
 
-    r.managed    = false
-
     log.Printf("[INFO][terraform-provider-hosts/api/deleteRecord()] deleted zone %d, record %q - %#v\n", zone, address, names)
     return nil</span>
 }
@@ -1606,7 +1633,7 @@ func renderRecord(r *Record) <span class="cov8" title="1">{
     }</span>
 
     <span class="cov8" title="1">if r.Comment != "" </span><span class="cov8" title="1">{
-        line += " #" + r.Comment
+        line += " # " + r.Comment
     }</span>
 
     <span class="cov8" title="1">rendered = append(rendered, line)
@@ -1667,7 +1694,11 @@ func goScanRecord(z *Zone, zoneRecord *recordObject, lines &lt;-chan string) cha
         <span class="cov8" title="1">comment := ""
         if len(parts) &gt; 1 </span><span class="cov8" title="1">{
             comment = strings.TrimRight(parts[1], " \t")
-        }</span>
+            if z.Name != "external" </span><span class="cov8" title="1">{
+                // drop the leading space in the comment
+                comment = strings.TrimPrefix(comment, " ")
+            }</span>
+        }
 
         // split the information-part
         <span class="cov8" title="1">parts = strings.Fields(parts[0])
@@ -1680,14 +1711,20 @@ func goScanRecord(z *Zone, zoneRecord *recordObject, lines &lt;-chan string) cha
             return
         }</span>
 
+        // convert names to lower-case
+        <span class="cov8" title="1">names := parts[1:]
+        for i, _ := range names </span><span class="cov8" title="1">{
+            names[i] = strings.ToLower(names[i])
+        }</span>
+
         // create a new record if it doesn't exist, otherwise update it
         <span class="cov8" title="1">rQuery := new(Record)
         rQuery.Zone = z.ID
         rQuery.Address = parts[0]
-        rQuery.Names = parts[1:]
+        rQuery.Names = names
         r := lookupRecord(rQuery)
 
-        if r == nil </span><span class="cov8" title="1">{
+        if r == nil || len(r.Names) != len (rQuery.Names) </span><span class="cov8" title="1">{
             // create record
             rQuery.Comment = comment
             // rQuery.Notes   = ""   // notes are not saved in file
@@ -1742,7 +1779,6 @@ type Zone struct {
     Notes    string
     // private
     id       zoneID
-    managed  bool
     fileZone *zoneObject       // !!! beware of memory leaks
     records  []*recordObject   // !!! beware of memory leaks
 }
@@ -1792,10 +1828,7 @@ func CreateZone(zValues *Zone) error <span class="cov8" title="1">{
         return errors.New("[ERROR][terraform-provider-hosts/api/CreateZone(zValues)] another zone with similar properties already exists")
     }</span>
 
-    // take ownership
-    <span class="cov8" title="1">zValues.managed = true
-
-    return createZone(zValues)</span>   // zValues.ID will be ignored
+    <span class="cov8" title="1">return createZone(zValues)</span>   // zValues.ID will be ignored
 }
 
 func (z *Zone) Read() (zone *Zone, err error) <span class="cov8" title="1">{
@@ -1929,8 +1962,6 @@ func createZone(zValues *Zone) error <span class="cov8" title="1">{
     z.Name     = zValues.Name
     z.Notes    = zValues.Notes
 
-    z.managed  = zValues.managed   // requested by CreateZone()
-
     addZone(z)   // adds z.ID and z.id
 
     if zValues.fileZone == nil </span><span class="cov8" title="1">{   // if requested by CreateZone()
@@ -2059,7 +2090,6 @@ func deleteZone(z *Zone) error <span class="cov8" title="1">{
     z.Name     = ""
     z.Notes    = ""
 
-    z.managed  = false
     for _, recordObject := range z.records </span><span class="cov8" title="1">{   // !!! avoid memory leaks
         recordObject.record = nil
     }</span>

@@ -32,7 +32,7 @@ func resetRecordTestEnv() {
 func Test_LookupRecord(t *testing.T) {
     var test string
 
-    test = "found"
+    test = "found/with-names"
     t.Run(test, func(t *testing.T) {
 
         resetRecordTestEnv()
@@ -41,9 +41,79 @@ func Test_LookupRecord(t *testing.T) {
         r.Zone = 42
         r.Address = "a"
         r.Names = []string{ "n1", "n2", "n3" }
-        r.Comment = " ccc"
+        r.Comment = "ccc"
         r.Notes = "..."
-        r.managed = true
+        r.zoneRecord = new(recordObject)
+        addRecord(r)
+
+        // --------------------
+
+        rQuery := new(Record)
+        rQuery.Names = []string{ "n1" }
+
+        record := LookupRecord(rQuery)
+
+        // --------------------
+
+        if record == nil {
+            t.Errorf("[ LookupRecord(rQuery) ] expected: %#v, actual: %#v", r, record)
+        } else {
+
+            // --------------------
+
+            if record.ID != int(r.id) {
+               t.Errorf("[ LookupRecord(rQuery).ID ] expected: %#v, actual: %#v", int(r.id), record.ID)
+            }
+
+            // --------------------
+
+            if record.Address != r.Address {
+                t.Errorf("[ LookupRecord(rQuery).Address ] expected: %#v, actual: %#v", r.Address, record.Address)
+            }
+
+            // --------------------
+
+            if len(record.Names) != len(r.Names) {
+                t.Errorf("[ LookupRecord(rQuery).Names ] expected: %#v, actual: %#v", r.Names, record.Names)
+            }
+
+            // --------------------
+
+            if record.Comment != r.Comment {
+                t.Errorf("[ LookupRecord(rQuery).Comment ] expected: %#v, actual: %#v", r.Comment, record.Comment)
+            }
+
+            // --------------------
+
+            if record.Notes != r.Notes {
+                t.Errorf("[ LookupRecord(rQuery).Notes ] expected: %#v, actual: %#v", r.Notes, record.Notes)
+            }
+
+            // --------------------
+
+            if record.id != 0 {
+               t.Errorf("[ LookupRecord(rQuery).id ] expected: %#v, actual: %#v", 0, record.id)
+            }
+
+            // --------------------
+
+            if record.zoneRecord != nil {
+                t.Errorf("[ LookupRecord(rQuery).zoneRecord ] expected: %#v, actual: %#v", nil, record.zoneRecord)
+            }
+        }
+    })
+
+    test = "found/without-names"
+    t.Run(test, func(t *testing.T) {
+
+        resetRecordTestEnv()
+
+        r := new(Record)
+        r.Zone = 42
+        r.Address = "a"
+        r.Names = []string{ "n1", "n2", "n3" }
+        r.Comment = "ccc"
+        r.Notes = "..."
         r.zoneRecord = new(recordObject)
         addRecord(r)
 
@@ -94,12 +164,6 @@ func Test_LookupRecord(t *testing.T) {
 
             if record.id != 0 {
                t.Errorf("[ LookupRecord(rQuery).id ] expected: %#v, actual: %#v", 0, record.id)
-            }
-
-            // --------------------
-
-            if record.managed != false {
-                t.Errorf("[ LookupRecord(rQuery).managed ] expected: %#v, actual: %#v", false, record.managed)
             }
 
             // --------------------
@@ -275,7 +339,7 @@ func Test_CreateRecord(t *testing.T) {
         os.Remove(path)
     })
 
-    test = "record-already-exists"
+    test = "name-already-exists/same-address"
     t.Run(test, func(t *testing.T) {
 
         resetRecordTestEnv()
@@ -315,10 +379,12 @@ func Test_CreateRecord(t *testing.T) {
 
         if err == nil {
             t.Errorf("[ CreateRecord(r).err ] expected: %s, actual: %#v", "<error>", err)
-        } else if !strings.Contains(err.Error(), "similar") {
-            t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "similar", err.Error())
         } else if !strings.Contains(err.Error(), "already exists") {
             t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "already exists", err.Error())
+        } else {
+            if !strings.Contains(err.Error(), "with name") {
+                t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "with name", err.Error())
+            }
         }
 
         // --------------------
@@ -326,7 +392,7 @@ func Test_CreateRecord(t *testing.T) {
         os.Remove(path)
     })
 
-    test = "name-already-exists"
+    test = "name-already-exists/different-address"
     t.Run(test, func(t *testing.T) {
 
         resetRecordTestEnv()
@@ -366,10 +432,12 @@ func Test_CreateRecord(t *testing.T) {
 
         if err == nil {
             t.Errorf("[ CreateRecord(r).err ] expected: %s, actual: %#v", "<error>", err)
-        } else if !strings.Contains(err.Error(), "with name") {
-            t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "with name", err.Error())
         } else if !strings.Contains(err.Error(), "already exists") {
             t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "already exists", err.Error())
+        } else {
+            if !strings.Contains(err.Error(), "different address") {
+                t.Errorf("[ CreateRecord(r).err.Error() ] expected: contains %#v, actual: %#v", "different address", err.Error())
+            }
         }
 
         // --------------------
@@ -497,8 +565,6 @@ func Test_createRecord(t *testing.T) {
         rValues.Address = "a"
         rValues.Names = []string{ "n1", "n2", "n3" }
 
-        rValues.managed = true
-
         err = createRecord(rValues)
 
         // --------------------
@@ -548,12 +614,6 @@ func Test_createRecord(t *testing.T) {
 
             if r.Notes != rValues.Notes {
                 t.Errorf("[ lookupRecord(rValues).Notes ] expected: %#v, actual: %#v", rValues.Notes, r.Notes)
-            }
-
-            // --------------------
-
-            if r.managed != rValues.managed {
-                t.Errorf("[ lookupRecord(rValues).managed ] expected: %#v, actual: %#v", rValues.managed, r.managed)
             }
 
             // --------------------
@@ -750,7 +810,6 @@ func Test_rRead(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         // --------------------
 
@@ -794,20 +853,14 @@ func Test_rRead(t *testing.T) {
 
             // --------------------
 
-            if record.Comment != " some other comment" {
-                t.Errorf("[ r.Read().record.Comment ] expected: %#v, actual: %#v", " some other comment", record.Comment)
+            if record.Comment != "some other comment" {
+                t.Errorf("[ r.Read().record.Comment ] expected: %#v, actual: %#v", "some other comment", record.Comment)
             }
 
             // --------------------
 
             if record.Notes != r.Notes {
                 t.Errorf("[ r.Read().record.Notes ] expected: %#v, actual: %#v", r.Notes, record.Notes)
-            }
-
-            // --------------------
-
-            if record.managed != false {
-                t.Errorf("[ r.Read().record.managed ] expected: %#v, actual: %#v", false, record.managed)
             }
 
             // --------------------
@@ -902,7 +955,6 @@ func Test_readRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         expectedData := "1.1.1.1 my-host-1 # some other comment"
 
@@ -948,20 +1000,14 @@ func Test_readRecord(t *testing.T) {
 
             // --------------------
 
-            if record.Comment != " some other comment" {
-                t.Errorf("[ readRecord(r).record.Comment ] expected: %#v, actual: %#v", " some other comment", record.Comment)
+            if record.Comment != "some other comment" {
+                t.Errorf("[ readRecord(r).record.Comment ] expected: %#v, actual: %#v", "some other comment", record.Comment)
             }
 
             // --------------------
 
             if record.Notes != r.Notes {
                 t.Errorf("[ readRecord(r).record.Notes ] expected: %#v, actual: %#v", r.Notes, record.Notes)
-            }
-
-            // --------------------
-
-            if record.managed != true {
-                t.Errorf("[ readRecord(r).record.managed ] expected: %#v, actual: %#v", true, record.managed)
             }
 
             // --------------------
@@ -1202,7 +1248,7 @@ func Test_rUpdate(t *testing.T) {
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some comment"
+        rValues.Comment = "some comment"
 
         err = r.Update(rValues)
 
@@ -1251,7 +1297,7 @@ func Test_rUpdate(t *testing.T) {
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some updated comment"
+        rValues.Comment = "some updated comment"
 
         err = r.Update(rValues)
 
@@ -1302,7 +1348,7 @@ func Test_rUpdate(t *testing.T) {
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some updated comment"
+        rValues.Comment = "some updated comment"
 
         err = r.Update(rValues)
 
@@ -1349,14 +1395,13 @@ func Test_updateRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         expectedData := "1.1.1.1 my-host-1 # some updated comment"
 
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some updated comment"
+        rValues.Comment = "some updated comment"
         rValues.Notes = "...updated notes"
 
         err = updateRecord(r, rValues)
@@ -1408,12 +1453,6 @@ func Test_updateRecord(t *testing.T) {
 
             if r.Notes != rValues.Notes {
                 t.Errorf("[ lookupRecord(rValues).Notes ] expected: %#v, actual: %#v", rValues.Notes, r.Notes)
-            }
-
-            // --------------------
-
-            if r.managed != true {
-                t.Errorf("[ lookupRecord(rValues).managed ] expected: %#v, actual: %#v", true, r.managed)
             }
 
             // --------------------
@@ -1483,14 +1522,13 @@ func Test_updateRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         expectedData := "1.1.1.1 my-host-1 # some comment"
 
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some comment"
+        rValues.Comment = "some comment"
         rValues.Notes = "..."
 
         err = updateRecord(r, rValues)
@@ -1542,12 +1580,6 @@ func Test_updateRecord(t *testing.T) {
 
             if r.Notes != rValues.Notes {
                 t.Errorf("[ lookupRecord(rQuery).Notes ] expected: %#v, actual: %#v", rValues.Notes, r.Notes)
-            }
-
-            // --------------------
-
-            if r.managed != true {
-                t.Errorf("[ lookupRecord(rQuery).managed ] expected: %#v, actual: %#v", true, r.managed)
             }
 
             // --------------------
@@ -1623,7 +1655,6 @@ func Test_updateRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         os.Remove(path)
         err = os.Mkdir(path, 0644)
@@ -1636,7 +1667,7 @@ func Test_updateRecord(t *testing.T) {
         // --------------------
 
         rValues := new(Record)
-        rValues.Comment = " some updated comment"
+        rValues.Comment = "some updated comment"
         rValues.Notes = "...updated notes"
 
         err = updateRecord(r, rValues)
@@ -1680,20 +1711,14 @@ func Test_updateRecord(t *testing.T) {
 
             // --------------------
 
-            if r.Comment != " some comment" {
-                t.Errorf("[ lookupRecord(rValues).Comment ] expected: %#v, actual: %#v", " some comment", r.Comment)
+            if r.Comment != "some comment" {
+                t.Errorf("[ lookupRecord(rValues).Comment ] expected: %#v, actual: %#v", "some comment", r.Comment)
             }
 
             // --------------------
 
             if r.Notes != "..." {
                 t.Errorf("[ lookupRecord(rValues).Notes ] expected: %#v, actual: %#v", "...", r.Notes)
-            }
-
-            // --------------------
-
-            if r.managed != true {
-                t.Errorf("[ lookupRecord(rValues).managed ] expected: %#v, actual: %#v", true, r.managed)
             }
 
             // --------------------
@@ -1965,7 +1990,6 @@ func Test_deleteRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         rid := r.ID
         zid := r.Zone
@@ -2014,12 +2038,6 @@ func Test_deleteRecord(t *testing.T) {
 
         if r.Notes != "" {
             t.Errorf("[ r.Notes ] expected: %#v, actual: %#v", "", r.Notes)
-        }
-
-        // --------------------
-
-        if r.managed != false {
-            t.Errorf("[ r.managed ] expected: %#v, actual: %#v", false, r.managed)
         }
 
         // --------------------
@@ -2096,7 +2114,6 @@ func Test_deleteRecord(t *testing.T) {
         rQuery.Address = "1.1.1.1"
         r := lookupRecord(rQuery)
         r.Notes = "..."
-        r.managed = true
 
         os.Remove(path)
         err = os.Mkdir(path, 0644)
@@ -2147,20 +2164,14 @@ func Test_deleteRecord(t *testing.T) {
 
             // --------------------
 
-            if r.Comment != " some comment" {
-                t.Errorf("[ lookupRecord(rValues).Comment ] expected: %#v, actual: %#v", " some comment", r.Comment)
+            if r.Comment != "some comment" {
+                t.Errorf("[ lookupRecord(rValues).Comment ] expected: %#v, actual: %#v", "some comment", r.Comment)
             }
 
             // --------------------
 
             if r.Notes != "..." {
                 t.Errorf("[ lookupRecord(rValues).Notes ] expected: %#v, actual: %#v", "...", r.Notes)
-            }
-
-            // --------------------
-
-            if r.managed != true {
-                t.Errorf("[ lookupRecord(rValues).managed ] expected: %#v, actual: %#v", true, r.managed)
             }
 
             // --------------------
@@ -2252,7 +2263,7 @@ func Test_renderRecord(t *testing.T) {
             "my-host-2",
             "my-host-3",
         }
-        r.Comment = " some comment"
+        r.Comment = "some comment"
 
         ro := new(recordObject)
         r.zoneRecord = ro
@@ -2362,8 +2373,8 @@ func Test_goScanRecord(t *testing.T) {
 
             // --------------------
 
-            if z.records[0].record.Comment != " some comment" {
-                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some comment", z.records[0].record.Comment)
+            if z.records[0].record.Comment != "some comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", "some comment", z.records[0].record.Comment)
             }
 
             // --------------------
@@ -2456,8 +2467,8 @@ func Test_goScanRecord(t *testing.T) {
 
             // --------------------
 
-            if z.records[0].record.Comment != " some other comment" {
-                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
+            if z.records[0].record.Comment != "some other comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", "some other comment", z.records[0].record.Comment)
             }
 
             // --------------------
@@ -2544,8 +2555,8 @@ func Test_goScanRecord(t *testing.T) {
 
             // --------------------
 
-            if z.records[0].record.Comment != " some comment" {
-                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
+            if z.records[0].record.Comment != "some comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", "some other comment", z.records[0].record.Comment)
             }
 
             // --------------------
@@ -2644,8 +2655,8 @@ func Test_goScanRecord(t *testing.T) {
 
             // --------------------
 
-            if z.records[0].record.Comment != " some comment" {
-                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some other comment", z.records[0].record.Comment)
+            if z.records[0].record.Comment != "some comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", "some other comment", z.records[0].record.Comment)
             }
 
             // --------------------
@@ -2736,8 +2747,8 @@ func Test_goScanRecord(t *testing.T) {
 
             // --------------------
 
-            if z.records[0].record.Comment != " some comment" {
-                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", " some comment", z.records[0].record.Comment)
+            if z.records[0].record.Comment != "some comment" {
+                t.Errorf("[ z.records[0].record.Comment ] expected: not %#v, actual: %#v", "some comment", z.records[0].record.Comment)
             }
 
             // --------------------

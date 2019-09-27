@@ -17,9 +17,9 @@ $env:ROOT = "$ROOT"
 
 #
 # for terraform
-$env:TF_ROOT = "$ROOT".Replace("\", "/")
+$env:TF_ROOT = "$ROOT/examples".Replace("\", "/")
 $env:TF_INPUT = "false"
-$env:TF_LOG_PATH = "$env:TF_ROOT/logs/_terraform.log"
+$env:TF_LOG_PATH = "$env:TF_ROOT/_terraform.log"
 $env:TF_LOG = "TRACE"
 
 $env:TF_VAR_root = "$env:TF_ROOT"
