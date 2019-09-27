@@ -11,7 +11,7 @@
 To build:
 - [GNU make](https://www.gnu.org/software/make/)
 - [Golang](https://golang.org/) >= v1.13
-- [Terraform plugin SDK](github.com/hashicorp/terraform-plugin-sdk) ~= v1.0.0
+- [Terraform plugin SDK](https://github.com/hashicorp/terraform-plugin-sdk) ~= v1.0.0
 
 To use:
 - [Terraform](https://terraform.io) >= v0.12.9
@@ -45,7 +45,7 @@ Optional:
    - `%AppData%\terraform.d\plugins` on Windows
    - `$HOME\.terraform.d\plugins` on Linux
 
-   > :bulb: 
+   > :bulb:  
    > The makefile provides more commands: `tidy`, `test`, `log`, `report`, `testacc`, `build`, ...
     
 
@@ -59,7 +59,8 @@ Optional:
    - go to [the releases tab on github](https://github.com/stefaanc/terraform-provider-hosts/releases)
    - download the file that is appropriate for your machine
 
-   > :bulb: 
+
+   > :bulb:  
    > Alternatively, you can try our latest release-in-progress under the `releases` folder.  No guarantee though this will be a fully working provider.
 
 2. Move the provider from your `Downloads` folder to
@@ -73,7 +74,7 @@ Optional:
 
 ## Using The Provider
 
-> :bulb: 
+> :bulb:  
 > You can find the following examples (and more) under the `examples` folder
 
 ### provider "hosts"
@@ -117,7 +118,8 @@ Exports     | &nbsp;   | Description
 `names`     | Computed | An array of names for the record that is read, for instance `[ "myhost1", "myhost1.local" ]`. 
 `comment`   | Computed | The comment of the record that is read, for instance `" server myhost`"`. 
 
-> :bulb: 
+
+> :bulb:  
 > It may be a good idea to add an `alias` to your provider configuration and a `provider` to your data-source configuration.  This avoids terraform going to the default "production" `hosts`-file when you (per accident) delete your provider configuration and run `terraform refresh` (or `terraform plan` or `terraform apply`).  Not doing this may silently update your terraform state with unwanted information from the "production" `hosts-file` instead of deleting the information. 
 > 
 > ```terraform
@@ -196,7 +198,7 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 ##### End Of Terraform Zone: myzone2 ###########################################
 ``` 
 
-> :information_source: 
+> :information_source:  
 > At this moment, zones are not automatically deleted when all its records are deleted.  You will need to manually delete such zones if you want to get rid of them.
 
 
