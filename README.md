@@ -46,8 +46,8 @@ Optional:
    - `$HOME\.terraform.d\plugins` on Linux
 <br/>
 
-   > :bulb:  
-   > The makefile provides more commands: `tidy`, `test`, `log`, `report`, `testacc`, `build`, ...
+ > :bulb:  
+ > The makefile provides more commands: `tidy`, `test`, `log`, `report`, `testacc`, `build`, ...
     
 
 
@@ -59,15 +59,15 @@ Optional:
 
    - go to [the releases tab on github](https://github.com/stefaanc/terraform-provider-hosts/releases)
    - download the file that is appropriate for your machine
-<br/>
-
-   > :bulb:  
-   > Alternatively, you can try our latest release-in-progress under the `releases` folder.  No guarantee though this will be a fully working provider.
 
 2. Move the provider from your `Downloads` folder to
 
    - `%AppData%\terraform.d\plugins` on Windows
    - `$HOME\.terraform.d\plugins` on Linux
+<br/>
+
+> :bulb:  
+> Alternatively, you can try our latest release-in-progress under the `releases` folder.  No guarantee though this will be a fully working provider.
 
 
 
@@ -201,6 +201,15 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 
 > :information_source:  
 > At this moment, zones are not automatically deleted when all its records are deleted.  You will need to manually delete such zones if you want to get rid of them.
+
+
+
+<br>
+
+## More Information
+
+[**API data structure**](./docs/api-data-structure.md)
+[**Acceptance tests**](./docs/acceptance-tests.md)
 
 
 
