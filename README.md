@@ -208,7 +208,7 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 
 ## More Information
 
-[**API data structure**](./docs/api-data-structure.md)
+[**API data structure**](./docs/api-data-structure.md)  
 [**Acceptance tests**](./docs/acceptance-tests.md)
 
 
