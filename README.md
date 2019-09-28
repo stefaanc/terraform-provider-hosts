@@ -174,6 +174,55 @@ Exports     | &nbsp;   | Description
 > :bulb:  
 > Remark that it is perfectly legal to have multiple records with the same `address`, but it is illegal to have multiple records with the same `name`.  The terraform `"hosts_record"`-resource doesn't allow to create records with such conflicting names.  However, externally managed records may have them by mistake.  
 
+**_Importing a hosts-record_**
+
+You can import a record using any of the hosts-file's names as an import-ID.
+
+- Assuming you have an existing hosts-file.
+
+  ```text
+  ##### Start Of Terraform Zone: myzone ##########################################
+  999.999.999.999 myhost999.local
+  ##### End Of Terraform Zone: myzone ############################################
+  ```
+
+  > :bulb:  
+  > Remark that this will only work when the record is in a hosts-zone, because "external " records cannot be managed by terraform.
+
+- Assuming you have a `host_record` resource configuration, and this resource is not yet/anymore in the terraform state
+
+  ```terraform
+  provider "hosts" {
+      alias = "myzone"
+ 
+      file = "./hosts-test.txt"
+      zone = "myzone"
+  }
+
+  resource "hosts_record" "myhost999" {
+      provider = hosts.myzone
+
+      address = "999.999.999.999"
+      names   = [ "myhost999", "myhost999.local" ]
+      comment = "server myhost999"
+      notes   = "my lost server"
+  }
+  ```
+
+  When terraform tries to create it then this will fail since it already exists.  You can edit the hosts-file and delete the resource, and then re-create it using terraform.  However, this may be a bit more involved when you need to automate this.  Alternatively you can import it.
+
+- Run the terraform command using any of the names in the hosts-file.  The name doesn't have to be one of the names in the resource configuration.
+
+  ```shell
+  terraform import -provider="hosts.myzone" "host_record.myhost999" "myhost999.local"
+  ```
+
+  The resource will be imported from the hosts-file into the terraform state, and the usual lifecycle will be applied next time `terraform apply` is run.
+
+  > :bulb:  
+  > Remark that without specifying a provider option, `terraform import` will use the default hosts provider (the provider without alias).  If there is no default provider specified in your configuration (all your providers have an alias), a provider with default values will be used (the default path to the "production" hosts-file and the default "external" zone).
+  > Remark also that the provider used in the import command, does not have to be the same as the provider in the configuration of the resource.  However, this will lead to errors when applying the configuration, since both providers are pointing to a hosts-file on the same server.
+
 
 
 <br>
@@ -208,8 +257,8 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 
 ## More Information
 
+[**Resource lifecycle methods**](./docs/resource-lifecycle-methods.md)
 [**API data structure**](./docs/api-data-structure.md)  
-[**Acceptance tests**](./docs/acceptance-tests.md)
 
 
 
@@ -217,8 +266,10 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 
 ## For Further Investigation
 
-- delete a zone from the hosts-file when all records in the zone are deleted
-- working with `hosts`-files on remote servers
+- delete a zone from the hosts-file when all records in the zone are deleted - this will be solved if/when we introduce `hosts_zone` resources
+- delete a hosts-file when all zones & records are deleted and no external records exist - this will be solved if/when we introduce `hosts_file` resources
+- working with hosts-files on remote servers
 - provide a post create/delete action (the provisioners only work post-create), f.i. to restart a service that needs to be restarted after every change to the hosts-file
 - add acceptance tests
+- terraform-style documentation
 - test for memory leaks

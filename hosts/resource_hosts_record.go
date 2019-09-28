@@ -23,6 +23,10 @@ func resourceHostsRecord() *schema.Resource {
         Update: resourceHostsRecordUpdate,
         Delete: resourceHostsRecordDelete,
 
+        Importer: &schema.ResourceImporter{
+            State: resourceHostsRecordImport,
+        },
+
         Schema: map[string]*schema.Schema {
             "record_id": &schema.Schema {
                 Type:     schema.TypeInt,
@@ -257,4 +261,19 @@ func resourceHostsRecordDelete(d *schema.ResourceData, m interface{}) error {
 
     log.Printf("[INFO][terraform-provider-hosts] deleted hosts-record %#v\n", recordID)
     return nil
+}
+
+func resourceHostsRecordImport(d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
+    importID := d.Id()
+
+    log.Printf("[INFO][terraform-provider-hosts] importing hosts-record %#v\n", importID)
+
+    // set identifying fields
+    _ = d.Set("record_id", 0)
+    _ = d.Set("names", []string{ importID })
+
+    // set id
+    d.SetId(importID)
+
+    return []*schema.ResourceData{ d }, nil
 }

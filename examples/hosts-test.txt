@@ -1,2 +1,1 @@
 1.1.1.1   myHost1 myHost1.local   # server myhost1
-

@@ -8,6 +8,7 @@ package main
 
 import (
     "github.com/hashicorp/terraform-plugin-sdk/plugin"
+    
     "github.com/stefaanc/terraform-provider-hosts/hosts"
 )
 
