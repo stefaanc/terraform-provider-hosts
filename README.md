@@ -257,7 +257,7 @@ Zones in a hosts-file are used to clearly split managed from unmanaged records. 
 
 ## More Information
 
-[**Resource lifecycle methods**](./docs/resource-lifecycle-methods.md)
+[**Resource lifecycle methods**](./docs/resource-lifecycle-methods.md)  
 [**API data structure**](./docs/api-data-structure.md)  
 
 

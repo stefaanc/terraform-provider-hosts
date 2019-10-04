@@ -65,7 +65,7 @@ resource                                                                 | &nbsp
 ### Adding The Exists Method
 
 > :bulb:  
-> `terraform-provider-hosts` **DOES NOT** supports the Update method
+> `terraform-provider-hosts` **DOES NOT** supports the Exists method
 
 resource                                                                 | &nbsp; | terraform refresh                       | terraform apply
 :------------------------------------------------------------------------|--------|:----------------------------------------|:---------------------
